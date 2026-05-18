@@ -80,8 +80,6 @@ def time_limit(seconds):
 		timer.cancel()
 
 
-
-
 class RuleEngine:
 	"""
 	Production-ready rule execution engine with:

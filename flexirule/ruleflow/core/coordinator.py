@@ -196,8 +196,10 @@ class RuleCoordinator:
 
 		runtime_fields = [
 			"name",
+			"is_active",
 			"document_type",
 			"trigger_event",
+			"trigger_type",
 			"priority",
 			"compiled_expression",
 			"trigger_condition",
@@ -238,6 +240,8 @@ class RuleCoordinator:
 				"name": rule_name,
 				"doctype": doctype,
 				"event": event,
+				"trigger_type": row.get("trigger_type") or "DocType Event",
+				"is_active": RuleCoordinator._is_active_value(row.get("is_active", 1)),
 				"priority": RuleCoordinator._normalized_priority(row.get("priority")),
 				"execution_mode": row.get("execution_mode") or "Synchronous",
 				"debug_mode": bool(row.get("debug_mode")),
@@ -420,11 +424,15 @@ class RuleCoordinator:
 
 			# Fetch old_doc once for all rules
 			old_doc = None
-			if hasattr(doc, "get_doc_before_save"):
-				try:
-					old_doc = doc.get_doc_before_save()
-				except Exception:
-					old_doc = None
+			if event_name in RuleCoordinator.FIELD_FILTER_EVENTS or any(
+				spec.get("compiled_expression") and "old_doc" in spec.get("compiled_expression", "")
+				for spec in runtime_specs
+			):
+				if hasattr(doc, "get_doc_before_save"):
+					try:
+						old_doc = doc.get_doc_before_save()
+					except Exception:
+						old_doc = None
 
 			eligible_rule_names: list[str] = []
 			for rule_spec in runtime_specs:
@@ -506,32 +514,32 @@ class RuleCoordinator:
 		Returns: (is_eligible: bool, reason: str)
 		"""
 		# 1. Active Check
-		if not allow_inactive and not RuleCoordinator._is_active_value(rule_doc.get("is_active", 1)):
+		if not allow_inactive and not rule_doc.get("is_active", True):
 			return False, _("Rule is not active")
 
 		# 2. Event Check
-		trigger_event = rule_doc.get("trigger_event") or getattr(rule_doc, "event", None)
-		if not skip_event_check and trigger_event != event_name:
-			return False, _("Event mismatch: Rule expects {0}, got {1}").format(trigger_event, event_name)
+		trigger_event = rule_doc.get("trigger_event") or rule_doc.get("event")
+		if not skip_event_check and trigger_event and trigger_event != event_name:
+			# Extra safety for 'After Save' vs 'on_update' naming in Frappe
+			if not (trigger_event == "After Save" and event_name == "on_update"):
+				return False, _("Event mismatch: Rule expects {0}, got {1}").format(trigger_event, event_name)
 
 		# 3. Condition Check (Compiled Expression)
 		compiled_expression = rule_doc.get("compiled_expression")
+		if not compiled_expression and rule_doc.get("trigger_condition"):
+			# Fallback for specs that might not have compiled_expression but have JSON
+			# (though the architecture now mandates pre-compilation)
+			return False, _("Rule has trigger_condition but no compiled_expression. Please re-save the Rule.")
+
 		if compiled_expression:
 			try:
 				from flexirule.ruleflow.core.runtime_eval import eval_condition_bool, get_base_eval_context
-
-				# Fetch old_doc if missing
-				if not old_doc and hasattr(doc, "get_doc_before_save"):
-					try:
-						old_doc = doc.get_doc_before_save()
-					except Exception:
-						old_doc = None
 
 				eval_locals = get_base_eval_context(doc, old_doc=old_doc)
 				eval_locals["rule"] = frappe._dict(
 					{
 						"name": rule_doc.get("name"),
-						"trigger_type": rule_doc.get("trigger_type"),
+						"trigger_type": rule_doc.get("trigger_type") or "DocType Event",
 						"trigger_event": trigger_event,
 						"document_type": rule_doc.get("document_type") or rule_doc.get("doctype"),
 					}
@@ -540,14 +548,16 @@ class RuleCoordinator:
 				eval_locals["doctype"] = eval_locals["rule"].document_type or getattr(doc, "doctype", None)
 
 				if not eval_condition_bool(compiled_expression, eval_locals, default=False):
+					if bool(rule_doc.get("debug_mode")):
+						frappe.logger().info(
+							f"Rule {rule_doc.get('name')} ineligible: conditions failed. "
+							f"Expression: {compiled_expression}"
+						)
 					return False, _("Trigger Conditions failed")
 
 			except Exception as e:
 				return False, _("Trigger Evaluation Error: {0}").format(str(e))
 
-		# Conditions MUST be pre-compiled - no runtime JSON parsing
-		elif rule_doc.get("trigger_condition"):
-			return False, _("Rule has trigger_condition but no compiled_expression. Please re-save the Rule.")
 
 		return True, _("Eligible")
 

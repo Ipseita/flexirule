@@ -151,7 +151,15 @@ class _NotifyEngineStub:
 		self.rule = frappe._dict(name="Test Notify Rule")
 
 	def _get_action_config(self, action):
-		return RuleEngine._get_action_config(action)
+		import json
+
+		config_str = getattr(action, "config", None)
+		if not config_str:
+			return {}
+		try:
+			return json.loads(config_str)
+		except (json.JSONDecodeError, TypeError):
+			return {}
 
 	def _log(self, level, message):
 		return None
