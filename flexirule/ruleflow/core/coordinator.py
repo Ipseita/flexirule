@@ -558,7 +558,6 @@ class RuleCoordinator:
 			except Exception as e:
 				return False, _("Trigger Evaluation Error: {0}").format(str(e))
 
-
 		return True, _("Eligible")
 
 	@staticmethod
