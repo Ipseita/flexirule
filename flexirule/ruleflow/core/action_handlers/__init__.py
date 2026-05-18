@@ -228,35 +228,34 @@ class ActionHandler(ABC):
 		import frappe
 		from frappe.utils import add_days, getdate, nowdate
 
-		doc = context.get("doc")
-		if isinstance(doc, dict):
-			doc = frappe._dict(doc)
-		old_doc = context.get("old_doc")
-		if isinstance(old_doc, dict):
-			old_doc = frappe._dict(old_doc)
+		from flexirule.ruleflow.core.runtime_eval import get_base_eval_context
 
-		safe_frappe = context.get("frappe") or frappe
+		doc = context.get("doc")
+		old_doc = context.get("old_doc")
+		vars_dict = context.get("vars", {})
+
+		eval_locals = get_base_eval_context(doc, old_doc=old_doc, vars_dict=vars_dict)
+
 		safe_expression = (expression or "").strip()
 		# frappe.safe_eval can block module attribute traversal like frappe.utils.add_days.
 		# Normalize common date helpers to direct safe locals.
 		safe_expression = safe_expression.replace("frappe.utils.add_days", "add_days")
 		safe_expression = safe_expression.replace("frappe.utils.nowdate", "nowdate")
 		safe_expression = safe_expression.replace("frappe.utils.getdate", "getdate")
-		eval_locals = {
-			"doc": doc,
-			"old_doc": old_doc,
-			"vars": context.get("vars", {}),
-			"item": context.get("item"),
-			"loop": context.get("loop"),
-			"add_days": add_days,
-			"nowdate": nowdate,
-			"getdate": getdate,
-			"any": any,
-			"all": all,
-		}
+
+		eval_locals.update(
+			{
+				"item": context.get("item"),
+				"loop": context.get("loop"),
+				"add_days": add_days,
+				"nowdate": nowdate,
+				"getdate": getdate,
+			}
+		)
+
 		return frappe.safe_eval(
 			safe_expression,
-			eval_globals={"frappe": safe_frappe},
+			eval_globals={"frappe": eval_locals["frappe"]},
 			eval_locals=eval_locals,
 		)
 

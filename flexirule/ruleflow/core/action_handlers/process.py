@@ -47,13 +47,22 @@ class ProcessHandler(ActionHandler):
 			)
 			return None, getattr(action, "next_step_if_true", None)
 
-		# Parse configuration
+		# Parse configuration (Pre-parsed via engine._get_action_config -> plan_cache)
 		config = engine._get_action_config(action)
 
 		# Apply Input Mapping (Context -> Config)
-		action_config = frappe.parse_json(getattr(action, "config", "{}") or "{}")
-		if action_config.get("input_mapping"):
-			config = apply_input_mapping(context, action_config.get("input_mapping"), config)
+		from flexirule.ruleflow.core.action_plan_cache import get_action_plan
+
+		plan = get_action_plan(engine.rule, action)
+		input_mapping = plan.get("input_mapping") if plan else None
+
+		if not input_mapping and not plan:
+			# Fallback if plan is missing
+			action_config = self._parse_config(getattr(action, "config", "{}") or "{}")
+			input_mapping = action_config.get("input_mapping")
+
+		if input_mapping:
+			config = apply_input_mapping(context, input_mapping, config)
 
 		# Execute through centralized declarative runtime v2 path
 		# (adapter registry + strict config/result schemas + policy gate).

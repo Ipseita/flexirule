@@ -426,34 +426,34 @@ class RuleCoordinator:
 				except Exception:
 					old_doc = None
 
-			valid_rules: list[Any] = []
+			eligible_rule_names: list[str] = []
 			for rule_spec in runtime_specs:
+				# 1. Fast Watched Field Filter
 				if not RuleCoordinator._passes_watched_field_filter(rule_spec, doc, event_name):
 					continue
 
-				try:
-					rule_doc = frappe.get_cached_doc("Rule", rule_spec["name"])
-				except frappe.DoesNotExistError:
-					# Stale registry entry: clear caches and skip this cycle.
-					RuleCoordinator.clear_cache()
-					return
-
+				# 2. Eligibility Check using registry SPEC (Lazy Hydration)
+				# This avoids frappe.get_cached_doc for skipped rules.
 				is_eligible, reason = RuleCoordinator.check_eligibility(
-					rule_doc,
+					rule_spec,
 					doc,
 					event_name,
 					old_doc=old_doc,
 				)
+
 				if is_eligible:
-					valid_rules.append(rule_doc)
+					eligible_rule_names.append(rule_spec["name"])
 				elif bool(rule_spec.get("debug_mode")):
 					frappe.log_error(
-						title=_("Rule Skipped: {0}").format(rule_doc.name),
+						title=_("Rule Skipped: {0}").format(rule_spec["name"]),
 						message=_(reason),
 					)
 
-			for rule_doc in valid_rules:
+			for rule_name in eligible_rule_names:
 				try:
+					# Now we hydrate only the rules that actually need to execute.
+					rule_doc = frappe.get_cached_doc("Rule", rule_name)
+
 					RuleCoordinator.execute_single_rule(
 						doc,
 						rule_doc,
@@ -491,92 +491,55 @@ class RuleCoordinator:
 
 	@staticmethod
 	def check_eligibility(
-		rule_doc,
-		doc,
-		event_name,
-		execution_mode="Synchronous",
-		skip_event_check=False,
-		allow_inactive=False,
-		old_doc=None,
+		rule_doc: Any,
+		doc: Any,
+		event_name: str,
+		execution_mode: str = "Synchronous",
+		skip_event_check: bool = False,
+		allow_inactive: bool = False,
+		old_doc: Any = None,
 	) -> tuple[bool, str]:
 		"""
-		Strict V1 Contract Eligibility Check
+		Strict V1 Contract Eligibility Check.
+		Supports both Rule documents and rule_spec dicts for lazy hydration.
+
 		Returns: (is_eligible: bool, reason: str)
 		"""
 		# 1. Active Check
-		if not allow_inactive and not RuleCoordinator._is_active_value(rule_doc.get("is_active")):
+		if not allow_inactive and not RuleCoordinator._is_active_value(rule_doc.get("is_active", 1)):
 			return False, _("Rule is not active")
 
 		# 2. Event Check
-		if not skip_event_check and rule_doc.trigger_event != event_name:
-			# This might happen if cache returns mixed results or during manual triggers
-			return False, _("Event mismatch: Rule expects {0}, got {1}").format(
-				rule_doc.trigger_event, event_name
-			)
+		trigger_event = rule_doc.get("trigger_event") or getattr(rule_doc, "event", None)
+		if not skip_event_check and trigger_event != event_name:
+			return False, _("Event mismatch: Rule expects {0}, got {1}").format(trigger_event, event_name)
 
-		# 3. Mode Check (Strict)
-		# For V1, we enforce that Sync rules run in Sync context.
-		# Async is handled by the executor, but we should flag mismatch if needed.
-		# Currently, we don't have explicit 'mode' passed from hooks, so we assume Sync.
-		# If Rule is Async, it will be queued by execute_single_rule.
-
-		# 4. Condition Check (Compiled Expression)
-		# We now rely solely on compiled_expression which is the compiled version of trigger_condition
-		if rule_doc.get("compiled_expression"):
+		# 3. Condition Check (Compiled Expression)
+		compiled_expression = rule_doc.get("compiled_expression")
+		if compiled_expression:
 			try:
-				from flexirule.ruleflow.core.evaluator import check_link_match
-				from flexirule.ruleflow.utils.field_resolver import FieldResolver
+				from flexirule.ruleflow.core.runtime_eval import eval_condition_bool, get_base_eval_context
 
 				# Fetch old_doc if missing
 				if not old_doc and hasattr(doc, "get_doc_before_save"):
-					old_doc = doc.get_doc_before_save()
-
-				# Use SafeFrappeAPI to prevent write operations in trigger conditions
-				from flexirule.ruleflow.core.engine import SafeFrappeAPI
-
-				rule_meta = {
-					"name": rule_doc.name,
-					"trigger_type": rule_doc.trigger_type,
-					"trigger_event": rule_doc.trigger_event,
-					"document_type": rule_doc.document_type,
-				}
-				doctype_name = rule_doc.document_type or getattr(doc, "doctype", None)
-
-				def _get_meta(doctype):
-					if not doctype:
-						return None
 					try:
-						return frappe.get_meta(doctype)
+						old_doc = doc.get_doc_before_save()
 					except Exception:
-						return None
+						old_doc = None
 
-				def _is_submittable(doctype):
-					meta = _get_meta(doctype)
-					return bool(getattr(meta, "is_submittable", 0)) if meta else False
+				eval_locals = get_base_eval_context(doc, old_doc=old_doc)
+				eval_locals["rule"] = frappe._dict(
+					{
+						"name": rule_doc.get("name"),
+						"trigger_type": rule_doc.get("trigger_type"),
+						"trigger_event": trigger_event,
+						"document_type": rule_doc.get("document_type") or rule_doc.get("doctype"),
+					}
+				)
+				eval_locals["caller"] = frappe._dict({})
+				eval_locals["doctype"] = eval_locals["rule"].document_type or getattr(doc, "doctype", None)
 
-				def _has_field(doctype, fieldname):
-					meta = _get_meta(doctype)
-					return bool(meta and fieldname and meta.has_field(fieldname))
-
-				eval_globals = {
-					"doc": doc,
-					"old_doc": old_doc,
-					"vars": {},
-					"frappe": SafeFrappeAPI(),
-					"caller": frappe._dict({}),
-					"rule": frappe._dict(rule_meta),
-					"doctype": doctype_name,
-					"is_submittable": _is_submittable,
-					"has_field": _has_field,
-					"get_meta": _get_meta,
-					"resolve": FieldResolver.resolve,
-					"check_link_match": check_link_match,
-					"True": True,
-					"False": False,
-					"None": None,
-				}
-
-				if not frappe.safe_eval(rule_doc.get("compiled_expression"), None, eval_globals):
+				if not eval_condition_bool(compiled_expression, eval_locals, default=False):
 					return False, _("Trigger Conditions failed")
 
 			except Exception as e:

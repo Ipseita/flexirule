@@ -110,15 +110,101 @@ def _compile_rule_action_plan(rule_doc, rule_hash: str) -> dict[str, Any]:
 			compiled = _compile_notify_action(action)
 		elif action_type == "Document Action":
 			compiled = _compile_document_action(action)
+		elif action_type == "Process":
+			compiled = _compile_process_action(action)
+		elif action_type == "Condition":
+			compiled = _compile_condition_action(action)
+		elif action_type == "Loop":
+			compiled = _compile_loop_action(action)
+		elif action_type == "Switch":
+			compiled = _compile_switch_action(action)
+		elif action_type == "Sub-Rule":
+			compiled = _compile_sub_rule_action(action)
+		elif action_type == "Query Records":
+			compiled = _compile_query_records_action(action)
 
-		if compiled:
-			actions[_action_key(action)] = compiled
+		# Always include common fields and pre-parsed config
+		if not compiled:
+			compiled = {"action_type": action_type}
+
+		if "config" not in compiled:
+			compiled["config"] = _parse_json(getattr(action, "config", None), fallback={})
+
+		actions[_action_key(action)] = compiled
 
 	return {
 		"cache_version": CACHE_VERSION,
 		"rule_name": getattr(rule_doc, "name", None),
 		"rule_hash": rule_hash,
 		"actions": actions,
+	}
+
+
+def _compile_process_action(action) -> dict[str, Any]:
+	config = _parse_json(getattr(action, "config", None), fallback={})
+	return {
+		"action_type": "Process",
+		"process_name": getattr(action, "process_name", None),
+		"operation": getattr(action, "operation", None),
+		"config": config,
+		"input_mapping": config.get("input_mapping"),
+		"output_mapping": config.get("output_mapping"),
+	}
+
+
+def _compile_condition_action(action) -> dict[str, Any]:
+	return {
+		"action_type": "Condition",
+		"compiled_expression": getattr(action, "compiled_expression", None),
+		"next_step_if_true": getattr(action, "next_step_if_true", None),
+		"next_step_if_false": getattr(action, "next_step_if_false", None),
+	}
+
+
+def _compile_loop_action(action) -> dict[str, Any]:
+	config = _parse_json(getattr(action, "config", None), fallback={})
+	return {
+		"action_type": "Loop",
+		"config": config,
+		"collection_path": config.get("collection_path"),
+		"iterator_alias": config.get("iterator_alias", "item"),
+		"for_each_action": getattr(action, "next_step_if_true", None),
+		"after_loop_action": getattr(action, "next_step_if_false", None),
+	}
+
+
+def _compile_switch_action(action) -> dict[str, Any]:
+	config = _parse_json(getattr(action, "config", None), fallback={})
+	return {
+		"action_type": "Switch",
+		"config": config,
+		"expression": config.get("expression"),
+		"cases": config.get("cases", {}),
+		"default_action": getattr(action, "next_step_if_false", None),
+	}
+
+
+def _compile_sub_rule_action(action) -> dict[str, Any]:
+	config = _parse_json(getattr(action, "config", None), fallback={})
+	return {
+		"action_type": "Sub-Rule",
+		"config": config,
+		"sub_rule_name": getattr(action, "reference_docname", None),
+		"input_mapping": config.get("input_mapping"),
+		"output_mapping": config.get("output_mapping"),
+	}
+
+
+def _compile_query_records_action(action) -> dict[str, Any]:
+	config = _parse_json(getattr(action, "config", None), fallback={})
+	return {
+		"action_type": "Query Records",
+		"config": config,
+		"reference_doctype": getattr(action, "reference_doctype", None),
+		"filters": config.get("filters"),
+		"fields": config.get("fields"),
+		"order_by": config.get("order_by"),
+		"limit": config.get("limit"),
 	}
 
 
