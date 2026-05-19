@@ -99,9 +99,27 @@ export default {
 		},
 		upHandler() {
 			this.selectedIndex = (this.selectedIndex + this.items.length - 1) % this.items.length;
+			this.scrollToActive();
 		},
 		downHandler() {
 			this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
+			this.scrollToActive();
+		},
+		scrollToActive() {
+			this.$nextTick(() => {
+				const container = this.$el.querySelector(".tg-mention-scroller");
+				const item = container?.querySelector(".is-selected");
+				if (container && item) {
+					const containerRect = container.getBoundingClientRect();
+					const itemRect = item.getBoundingClientRect();
+
+					if (itemRect.top < containerRect.top) {
+						container.scrollTop -= containerRect.top - itemRect.top;
+					} else if (itemRect.bottom > containerRect.bottom) {
+						container.scrollTop += itemRect.bottom - containerRect.bottom;
+					}
+				}
+			});
 		},
 		enterHandler() {
 			this.selectItem(this.selectedIndex);

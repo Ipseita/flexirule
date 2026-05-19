@@ -5,7 +5,15 @@
 		:class="{ 'is-compact': compact, 'is-disabled': disabled || controlReadOnly }"
 	>
 		<!-- ── Component Body (Single Line Height 32px–38px) ── -->
-		<div class="fsvc-main-field" :class="{ 'is-dynamic': isDynamicMode || !isStaticSupported }">
+		<div
+			class="fsvc-main-field"
+			:class="{
+				'is-dynamic': isDynamicMode || !isStaticSupported,
+				'is-static-select':
+					!isDynamicMode && (fieldType === 'Select' || fieldType === 'Check'),
+			}"
+			@click="onWrapClick"
+		>
 			<!-- Static View using ControlFactory -->
 			<div
 				v-if="!isDynamicMode && isStaticSupported"
@@ -55,7 +63,30 @@
 
 				<!-- All other standard types -->
 				<template v-else>
+					<div
+						v-if="fieldType === 'Check'"
+						class="d-flex align-items-center flex-1 px-2"
+						style="height: 100%"
+					>
+						<div class="tg-switch">
+							<input
+								type="checkbox"
+								id="static-bool-toggle"
+								:checked="!!staticValue"
+								:disabled="disabled || controlReadOnly"
+								@change="updateStaticValue($event.target.checked ? 1 : 0)"
+							/>
+							<label class="tg-slider" for="static-bool-toggle"></label>
+						</div>
+						<label
+							for="static-bool-toggle"
+							class="tg-switch-label mb-0 ms-2 cursor-pointer"
+						>
+							{{ !!staticValue ? __("Yes") : __("No") }}
+						</label>
+					</div>
 					<ControlFactory
+						v-else
 						:df="staticDf"
 						:modelValue="staticValue"
 						:doc="doc"
@@ -72,6 +103,18 @@
 			<div v-show="isDynamicMode || !isStaticSupported" class="fsvc-editor-container flex-1">
 				<div class="fsvc-editor-wrapper">
 					<editor-content :editor="editor" class="fsvc-tiptap-editor" />
+
+					<!-- Inline Actions (JSON Preview) -->
+					<div class="fsvc-inline-actions" v-if="!controlReadOnly && !isEditorEmpty">
+						<button
+							class="fsvc-action-btn"
+							:title="__('JSON Preview')"
+							@click="openTokenEditor(null, null, 'json')"
+						>
+							<i class="fa fa-code"></i>
+						</button>
+					</div>
+
 					<!-- Contextual placeholder shown only when editor is empty and not focused -->
 					<div
 						v-if="!controlReadOnly && isEditorEmpty && !isEditorFocused"
@@ -443,6 +486,86 @@
 						</div>
 					</template>
 
+					<!-- ⌄ Select Modal UI -->
+					<template v-if="activeTokenType === 'select'">
+						<div class="d-flex flex-column fxr-gap-3">
+							<label class="fxr-label-sm">{{ __("Select Option") }}</label>
+							<select class="fxr-select" v-model="tokenDraftAttrs.value">
+								<option value="">{{ __("Select option...") }}</option>
+								<option
+									v-for="opt in parsedSelectOptions"
+									:key="opt.value || opt"
+									:value="opt.value || opt"
+								>
+									{{ opt.label || opt }}
+								</option>
+							</select>
+						</div>
+					</template>
+
+					<!-- 🔘 Boolean Modal UI -->
+					<template v-if="activeTokenType === 'boolean'">
+						<div class="d-flex align-items-center fxr-gap-3 p-2">
+							<div class="tg-switch">
+								<input
+									type="checkbox"
+									id="token-bool-toggle"
+									v-model="tokenDraftAttrs.value"
+								/>
+								<label class="tg-slider" for="token-bool-toggle"></label>
+							</div>
+							<label for="token-bool-toggle" class="tg-switch-label mb-0">{{
+								tokenDraftAttrs.value ? __("Enabled (Yes)") : __("Disabled (No)")
+							}}</label>
+						</div>
+					</template>
+
+					<!-- 📑 MultiSelect Modal UI -->
+					<template v-if="activeTokenType === 'multiselect'">
+						<div class="d-flex flex-column fxr-gap-3">
+							<label class="fxr-label-sm">{{ __("Select Multiple Options") }}</label>
+							<MultiSelectList
+								:df="{ fieldtype: 'MultiSelect', options: options }"
+								:modelValue="tokenDraftAttrs.values"
+								@update:modelValue="tokenDraftAttrs.values = $event"
+							/>
+						</div>
+					</template>
+
+					<!-- 📦 JSON Modal UI -->
+					<template v-if="activeTokenType === 'json'">
+						<div class="d-flex flex-column fxr-gap-3">
+							<label class="fxr-label-sm">{{ __("JSON Data Editor") }}</label>
+							<textarea
+								class="fxr-textarea json-textarea"
+								v-model="tokenDraftAttrs.value"
+								placeholder='{ "key": "value" }'
+							></textarea>
+							<div v-if="jsonParseError" class="text-danger fxr-text-xs">
+								{{ jsonParseError }}
+							</div>
+						</div>
+					</template>
+
+					<!-- 🔑 Add Key/Value Modal UI -->
+					<template v-if="activeTokenType === 'add-key'">
+						<div class="d-flex flex-column fxr-gap-2">
+							<label class="fxr-label-sm">{{ __("Structured Key/Value") }}</label>
+							<div class="d-flex fxr-gap-2">
+								<input
+									class="fxr-input flex-1"
+									v-model="tokenDraftAttrs.key"
+									placeholder="Key"
+								/>
+								<input
+									class="fxr-input flex-2"
+									v-model="tokenDraftAttrs.value"
+									placeholder="Value"
+								/>
+							</div>
+						</div>
+					</template>
+
 					<!-- 🧩 Dynamic Link Modal UI -->
 					<template v-if="activeTokenType === 'dynamicLink'">
 						<div class="d-flex flex-column fxr-gap-3">
@@ -588,6 +711,7 @@ import tippy from "tippy.js";
 // Aggressively Reuse MentionList, ComboBoxControl, and ControlFactory
 import MentionList from "./MentionList.vue";
 import ComboBoxControl from "./ComboBoxControl.vue";
+import MultiSelectList from "./MultiSelectList.vue";
 import ConditionBuilder from "../components/condition_builder/ConditionBuilder.vue";
 
 const ControlFactory = defineAsyncComponent(() => import("./ControlFactory.vue"));
@@ -608,6 +732,18 @@ const ALL_SLASH_COMMANDS = [
 	{ id: "condition", label: __("Condition"), type: "logic", icon: "🔀", groups: ["*"] },
 	{ id: "link", label: __("Link Picker"), type: "logic", icon: "🔗", groups: ["link"] },
 	{ id: "dynamic-link", label: __("Dynamic Link"), type: "logic", icon: "🧩", groups: ["link"] },
+	{ id: "json", label: __("JSON Editor"), type: "logic", icon: "📦", groups: ["*"] },
+	{ id: "add-key", label: __("Add Key/Value"), type: "logic", icon: "🔑", groups: ["*"] },
+	{ id: "clear", label: __("Clear Editor"), type: "logic", icon: "🗑️", groups: ["*"] },
+	{ id: "select", label: __("Select Option"), type: "logic", icon: "⌄", groups: ["select"] },
+	{ id: "boolean", label: __("Toggle"), type: "logic", icon: "🔘", groups: ["boolean"] },
+	{
+		id: "multiselect",
+		label: __("Multi Select"),
+		type: "logic",
+		icon: "📑",
+		groups: ["multiselect"],
+	},
 ];
 
 // Fieldtype → command group classification
@@ -620,8 +756,10 @@ function getCommandGroupForFieldtype(ft) {
 	if (NUMERIC_FIELDTYPES.has(ft)) return "numeric";
 	if (DATE_FIELDTYPES_ALL.has(ft)) return "date";
 	if (BOOLEAN_FIELDTYPES.has(ft)) return "boolean";
-	if (ft === "Link") return "link-static";
+	if (ft === "Link") return "link";
 	if (ft === "Dynamic Link") return "link";
+	if (ft === "Select") return "select";
+	if (ft === "MultiSelect") return "multiselect";
 	return "text";
 }
 
@@ -646,6 +784,7 @@ const props = defineProps({
 	meta: { type: Object, default: () => ({}) },
 	engine: { type: Object, default: null },
 	doc: { type: Object, default: null },
+	operator: { type: String, default: "" },
 });
 
 const emit = defineEmits(["update", "update:modelValue"]);
@@ -656,12 +795,14 @@ const controlReadOnly = computed(
 
 // Dynamic toggle indicator
 const isDynamicMode = ref(false);
+const isSuggestionOpen = ref(false);
 
 // Teleported Modal/Dialog Controllers
 const activeTokenType = ref(null); // 'formula', 'resolver', 'formatter', 'normalize', 'condition', 'localization', 'link', 'dynamicLink'
 const activeTokenNode = ref(null);
 const activeTokenPos = ref(null);
 const tokenDraftAttrs = ref({});
+const jsonParseError = ref("");
 const formulaTextareaRef = ref(null);
 const controlRef = ref(null);
 const popoverStyle = ref({});
@@ -684,23 +825,21 @@ const PURE_TEXT_FIELDTYPES = new Set([
 	"Code",
 	"Text Editor",
 ]);
-const isStaticSupported = computed(() => !PURE_TEXT_FIELDTYPES.has(props.fieldType));
+const isStaticSupported = computed(() => {
+	return !PURE_TEXT_FIELDTYPES.has(props.fieldType);
+});
 
 const staticDf = computed(() => {
 	let ft = props.fieldType;
 	let options = ft === "Link" ? props.referenceDoctype : props.options || [];
 
-	// Map Check and Select to Autocomplete to allow text input (for typing @ /)
-	if (ft === "Check") {
-		ft = "Autocomplete";
-		options = [
-			{ label: __("Yes"), value: 1 },
-			{ label: __("No"), value: 0 },
-		];
-	} else if (ft === "Select") {
+	if (ft === "Select") {
 		ft = "Autocomplete";
 		options = parsedSelectOptions.value;
 	}
+
+	// For Link types, we keep them as Link to use ComboBoxControl via ControlFactory
+	// and ensure they trigger dynamic mode on @ or /
 
 	return {
 		fieldtype: ft,
@@ -746,6 +885,98 @@ const VariableToken = Node.create({
 				class: "token-chip token-variable",
 			}),
 			`👤 ${label}`,
+		];
+	},
+});
+
+const SelectToken = Node.create({
+	name: "selectToken",
+	group: "inline",
+	inline: true,
+	selectable: true,
+	atom: true,
+	addAttributes() {
+		return {
+			value: {
+				default: "",
+				parseHTML: (el) => el.getAttribute("data-value") || "",
+				renderHTML: (attrs) => ({ "data-value": attrs.value }),
+			},
+		};
+	},
+	parseHTML() {
+		return [{ tag: 'span[data-token-type="select"]' }];
+	},
+	renderHTML({ node, HTMLAttributes }) {
+		return [
+			"span",
+			mergeAttributes(HTMLAttributes, {
+				"data-token-type": "select",
+				class: "token-chip token-select",
+			}),
+			`⌄ ${node.attrs.value || "Select..."}`,
+		];
+	},
+});
+
+const BooleanToken = Node.create({
+	name: "booleanToken",
+	group: "inline",
+	inline: true,
+	selectable: true,
+	atom: true,
+	addAttributes() {
+		return {
+			value: {
+				default: false,
+				parseHTML: (el) => el.getAttribute("data-value") === "true",
+				renderHTML: (attrs) => ({ "data-value": attrs.value }),
+			},
+		};
+	},
+	parseHTML() {
+		return [{ tag: 'span[data-token-type="boolean"]' }];
+	},
+	renderHTML({ node, HTMLAttributes }) {
+		const label = node.attrs.value ? __("Yes") : __("No");
+		return [
+			"span",
+			mergeAttributes(HTMLAttributes, {
+				"data-token-type": "boolean",
+				class: `token-chip token-boolean ${node.attrs.value ? "is-true" : "is-false"}`,
+			}),
+			`🔘 ${label}`,
+		];
+	},
+});
+
+const MultiSelectToken = Node.create({
+	name: "multiSelectToken",
+	group: "inline",
+	inline: true,
+	selectable: true,
+	atom: true,
+	addAttributes() {
+		return {
+			values: {
+				default: () => [],
+				parseHTML: (el) => safeJsonDecode(el.getAttribute("data-values")) || [],
+				renderHTML: (attrs) => ({ "data-values": safeJsonEncode(attrs.values) }),
+			},
+		};
+	},
+	parseHTML() {
+		return [{ tag: 'span[data-token-type="multiselect"]' }];
+	},
+	renderHTML({ node, HTMLAttributes }) {
+		const count = node.attrs.values?.length || 0;
+		return [
+			"span",
+			mergeAttributes(HTMLAttributes, {
+				"data-token-type": "multiselect",
+				class: "token-chip token-multiselect",
+			}),
+			`📑 ${count} items`,
 		];
 	},
 });
@@ -1060,6 +1291,7 @@ function createSuggestionRenderer() {
 	let popup;
 	return {
 		onStart: (props) => {
+			isSuggestionOpen.value = true;
 			component = new VueRenderer(MentionList, { props, editor: props.editor });
 			if (!props.clientRect) return;
 			popup = tippy("body", {
@@ -1084,6 +1316,7 @@ function createSuggestionRenderer() {
 			return component?.ref?.onKeyDown(props);
 		},
 		onExit() {
+			isSuggestionOpen.value = false;
 			popup?.[0]?.destroy();
 			component?.destroy();
 		},
@@ -1114,6 +1347,9 @@ const editor = new Editor({
 		LocalizationToken,
 		LinkToken,
 		DynamicLinkToken,
+		SelectToken,
+		BooleanToken,
+		MultiSelectToken,
 		VariableTrigger.configure({
 			suggestion: {
 				char: "@",
@@ -1133,12 +1369,53 @@ const editor = new Editor({
 				render: () => createSuggestionRenderer(),
 				items: ({ query }) => {
 					const q = query.toLowerCase();
-					return (props.variableOptions || [])
-						.map((v) => ({
+					const systemMentions = [
+						{
+							id: "doc",
+							label: "doc",
+							type: "variable",
+							icon: "📄",
+							description: __("Current Document"),
+						},
+						{
+							id: "user",
+							label: "user",
+							type: "variable",
+							icon: "👤",
+							description: __("Current User"),
+						},
+						{
+							id: "now",
+							label: "now",
+							type: "variable",
+							icon: "🕒",
+							description: __("Current Time"),
+						},
+						{
+							id: "today",
+							label: "today",
+							type: "variable",
+							icon: "📅",
+							description: __("Current Date"),
+						},
+						{
+							id: "param",
+							label: "param",
+							type: "variable",
+							icon: "📥",
+							description: __("Action Parameters"),
+						},
+					];
+					const options = [
+						...systemMentions,
+						...(props.variableOptions || []).map((v) => ({
 							id: v.value || v,
 							label: v.label || v,
 							type: "variable",
-						}))
+							icon: v.is_variable ? "fa fa-code" : "fa fa-cube",
+						})),
+					];
+					return options
 						.filter(
 							(v) =>
 								v.id.toLowerCase().includes(q) || v.label.toLowerCase().includes(q)
@@ -1152,6 +1429,11 @@ const editor = new Editor({
 				char: "/",
 				pluginKey: new PluginKey("commandTrigger"),
 				command: ({ editor, range, props }) => {
+					if (props.id === "clear") {
+						editor.chain().focus().setContent("").run();
+						return;
+					}
+
 					const tokenMap = {
 						formula: "formulaToken",
 						resolver: "resolverToken",
@@ -1161,6 +1443,11 @@ const editor = new Editor({
 						condition: "conditionToken",
 						link: "linkToken",
 						"dynamic-link": "dynamicLinkToken",
+						json: "resolverToken", // For now map JSON to resolver or a generic handler
+						"add-key": "resolverToken",
+						select: "selectToken",
+						boolean: "booleanToken",
+						multiselect: "multiSelectToken",
 					};
 					const tokenName = tokenMap[props.id];
 					if (tokenName) {
@@ -1172,12 +1459,25 @@ const editor = new Editor({
 
 						// Focus after content insertion and fire dialog configuration for custom token
 						nextTick(() => {
-							editor.state.doc.descendants((node, pos) => {
-								if (node.type.name === tokenName) {
+							if (props.id === "json" || props.id === "add-key") {
+								openTokenEditor(null, null, props.id);
+							} else {
+								const { selection } = editor.state;
+								const pos = selection.$from.pos - 1;
+								const node = editor.state.doc.nodeAt(pos);
+
+								if (node && node.type.name === tokenName) {
 									openTokenEditor(node, pos);
-									return false;
+								} else {
+									// fallback to scanning if cursor position logic fails
+									editor.state.doc.descendants((node, pos) => {
+										if (node.type.name === tokenName) {
+											openTokenEditor(node, pos);
+											return false;
+										}
+									});
 								}
-							});
+							}
 						});
 					}
 				},
@@ -1196,16 +1496,14 @@ const editor = new Editor({
 					filtered = filtered.filter((c) => {
 						if (c.groups.includes("*")) return true;
 						if (c.groups.includes(group)) return true;
-						// link-static only gets the plain link picker
-						if (group === "link-static" && c.id === "link") return true;
 						return false;
 					});
 
 					// ── 3. Additional per-fieldtype exclusions ───────────────────
-					// Boolean fields: only formula/resolver/condition make sense
+					// Boolean fields: formula/resolver/condition/boolean make sense
 					if (BOOLEAN_FIELDTYPES.has(fType)) {
 						filtered = filtered.filter((c) =>
-							["formula", "resolver", "condition"].includes(c.id)
+							["formula", "resolver", "condition", "boolean"].includes(c.id)
 						);
 					}
 					// Date fields: normalize/localization/link/dynamic-link don't apply
@@ -1215,6 +1513,29 @@ const editor = new Editor({
 								!["localization", "normalize", "link", "dynamic-link"].includes(
 									c.id
 								)
+						);
+					}
+					// Numeric fields: formula/resolver/formatter/condition make sense
+					if (NUMERIC_FIELDTYPES.has(fType)) {
+						filtered = filtered.filter((c) =>
+							["formula", "resolver", "formatter", "condition"].includes(c.id)
+						);
+					}
+
+					// ── 4. Operator-based filtering ──────────────────────────────
+					if (props.operator === "toggle") {
+						// Toggle doesn't need a value usually, but if they enter one...
+						filtered = filtered.filter((c) => ["formula", "resolver"].includes(c.id));
+					} else if (props.operator === "increment" || props.operator === "decrement") {
+						// Only formula/resolver make sense for numeric adjustments
+						filtered = filtered.filter((c) => ["formula", "resolver"].includes(c.id));
+					} else if (props.operator === "append") {
+						// For list append, only formula/resolver make sense
+						filtered = filtered.filter((c) => ["formula", "resolver"].includes(c.id));
+					} else if (props.operator === "merge") {
+						// For object merge, formula/resolver/json make sense
+						filtered = filtered.filter((c) =>
+							["formula", "resolver", "json"].includes(c.id)
 						);
 					}
 
@@ -1244,6 +1565,7 @@ const editor = new Editor({
 		handleKeyDown(view, event) {
 			// Compact single line editor, block Enter key from creating newlines
 			if (event.key === "Enter") {
+				if (isSuggestionOpen.value) return false;
 				event.preventDefault();
 				emit("submit");
 				return true;
@@ -1276,6 +1598,9 @@ const editor = new Editor({
 					"localizationToken",
 					"linkToken",
 					"dynamicLinkToken",
+					"selectToken",
+					"booleanToken",
+					"multiSelectToken",
 				].includes(node.type.name)
 			) {
 				openTokenEditor(node, resolvedPos);
@@ -1400,6 +1725,15 @@ function serializeToStructuredValue() {
 				value: attrs.value,
 			};
 		}
+		if (name === "selectToken") {
+			return { mode: "static", value: attrs.value };
+		}
+		if (name === "booleanToken") {
+			return { mode: "static", value: attrs.value ? 1 : 0 };
+		}
+		if (name === "multiSelectToken") {
+			return { mode: "static", value: attrs.values };
+		}
 	}
 
 	return { mode: "static", value: editor.getText().trim() };
@@ -1469,6 +1803,12 @@ function deserializeStructuredValue(val) {
 
 // ─── Component Dynamic Mode Switching and Syncing ───
 
+function onWrapClick(e) {
+	if (isDynamicMode.value || !isStaticSupported.value) {
+		editor.commands.focus();
+	}
+}
+
 function toggleDynamicMode() {
 	if (controlReadOnly.value || props.disabled) return;
 	isDynamicMode.value = !isDynamicMode.value;
@@ -1489,6 +1829,8 @@ function toggleDynamicMode() {
 function onStaticKeydown(e) {
 	if (controlReadOnly.value || props.disabled) return;
 
+	// In Select mode, capture alphanumeric keys to trigger dynamic editor?
+	// Or only @ and /
 	if (e.key === "@" || e.key === "/") {
 		e.preventDefault();
 		e.stopPropagation();
@@ -1586,6 +1928,11 @@ const activeTokenPresentation = computed(() => {
 		localization: { title: __("Configure Localized String"), icon: "fa fa-globe" },
 		link: { title: __("Configure Link Picker"), icon: "fa fa-link" },
 		dynamicLink: { title: __("Configure Dynamic Link"), icon: "fa fa-cubes" },
+		select: { title: __("Select Option"), icon: "fa fa-list" },
+		boolean: { title: __("Toggle Value"), icon: "fa fa-toggle-on" },
+		multiselect: { title: __("Select Multiple"), icon: "fa fa-check-square-o" },
+		json: { title: __("JSON Editor"), icon: "fa fa-archive" },
+		"add-key": { title: __("Key/Value Pair"), icon: "fa fa-key" },
 	};
 	return map[activeTokenType.value] || { title: __("Token Configuration"), icon: "fa fa-cog" };
 });
@@ -1617,14 +1964,28 @@ function updatePopoverPosition() {
 	}
 }
 
-function openTokenEditor(node, pos) {
+function openTokenEditor(node, pos, typeOverride = null) {
 	if (controlReadOnly.value || props.disabled) return;
 	activeTokenNode.value = node;
 	activeTokenPos.value = pos;
 
+	if (typeOverride) {
+		activeTokenType.value = typeOverride;
+		if (typeOverride === "json") {
+			tokenDraftAttrs.value = { value: editor.getText() || "" };
+		} else if (typeOverride === "add-key") {
+			tokenDraftAttrs.value = { key: "", value: "" };
+		}
+		jsonParseError.value = "";
+		nextTick(() => {
+			updatePopoverPosition();
+		});
+		return;
+	}
+
 	// Populate Token Edit Values based on token node attributes
 	const name = node.type.name;
-	const attrs = JSON.parse(JSON.stringify(node.attrs)); // clone attributes
+	const attrs = node.attrs ? JSON.parse(JSON.stringify(node.attrs)) : {}; // clone attributes
 
 	if (name === "variableToken") {
 		activeTokenType.value = null; // Variable node requires no dialog
@@ -1677,6 +2038,15 @@ function openTokenEditor(node, pos) {
 		} else {
 			dynamicLinkMode.value = "static";
 		}
+	} else if (name === "selectToken") {
+		activeTokenType.value = "select";
+		tokenDraftAttrs.value = { value: attrs.value || "" };
+	} else if (name === "booleanToken") {
+		activeTokenType.value = "boolean";
+		tokenDraftAttrs.value = { value: !!attrs.value };
+	} else if (name === "multiSelectToken") {
+		activeTokenType.value = "multiselect";
+		tokenDraftAttrs.value = { values: attrs.values || [] };
 	}
 
 	nextTick(() => {
@@ -1733,6 +2103,46 @@ function saveTokenEditor() {
 				dynamicLinkMode.value === "variable" ? tokenDraftAttrs.value.doctype_variable : "",
 			value: tokenDraftAttrs.value.value,
 		};
+	} else if (name === "selectToken") {
+		attrs = { value: tokenDraftAttrs.value.value };
+	} else if (name === "booleanToken") {
+		attrs = { value: tokenDraftAttrs.value.value };
+	} else if (name === "multiSelectToken") {
+		attrs = { values: tokenDraftAttrs.value.values };
+	}
+
+	if (activeTokenType.value === "json") {
+		try {
+			const json = JSON.parse(tokenDraftAttrs.value.value);
+			emitting = true;
+			editor.commands.setContent(JSON.stringify(json, null, 2));
+			emitting = false;
+			emitChanges();
+			closeTokenEditor();
+			return;
+		} catch (e) {
+			jsonParseError.value = __("Invalid JSON format");
+			return;
+		}
+	}
+
+	if (activeTokenType.value === "add-key") {
+		const key = tokenDraftAttrs.value.key;
+		const val = tokenDraftAttrs.value.value;
+		if (key) {
+			const content = editor.getText();
+			let obj = {};
+			try {
+				obj = JSON.parse(content);
+			} catch (e) {}
+			obj[key] = val;
+			emitting = true;
+			editor.commands.setContent(JSON.stringify(obj, null, 2));
+			emitting = false;
+			emitChanges();
+		}
+		closeTokenEditor();
+		return;
 	}
 
 	// Update node attributes in Tiptap
@@ -1899,12 +2309,18 @@ onBeforeUnmount(() => {
 	height: 100%;
 }
 
+/* Support full width for select controls in static mode */
+.fsvc-main-field.is-static-select .fsvc-static-container {
+	padding: 0;
+}
+
 /* Deep override to remove internal borders from nested controls when wrapped by fsvc-main-field */
 .fsvc-static-container :deep(.combobox-wrapper),
 .fsvc-static-container :deep(.form-control),
 .fsvc-static-container :deep(.fxr-input),
 .fsvc-static-container :deep(.combobox-container .combobox-wrapper),
-.fsvc-static-container :deep(.fxr-input-group) {
+.fsvc-static-container :deep(.fxr-input-group),
+.fsvc-static-container :deep(.fxr-select) {
 	border: none !important;
 	box-shadow: none !important;
 	background: transparent !important;
@@ -2009,6 +2425,33 @@ onBeforeUnmount(() => {
 	user-select: none;
 }
 
+.fsvc-inline-actions {
+	position: absolute;
+	right: 0;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	gap: 4px;
+	padding-right: 4px;
+	background: linear-gradient(to left, var(--fxr-bg-input, #fff) 80%, transparent);
+}
+
+.fsvc-action-btn {
+	background: transparent;
+	border: none;
+	color: var(--fxr-text-muted, #94a3b8);
+	cursor: pointer;
+	padding: 2px 4px;
+	border-radius: 4px;
+	font-size: 12px;
+	transition: all 0.2s;
+}
+
+.fsvc-action-btn:hover {
+	color: var(--fxr-accent, #2490ef);
+	background: var(--fxr-bg-hover, #f1f5f9);
+}
+
 /* ── Token Chips Styles (Aggressive curated HSL colors) ── */
 :deep(.token-chip) {
 	display: inline-flex;
@@ -2085,6 +2528,30 @@ onBeforeUnmount(() => {
 	border-color: #14b8a633;
 }
 
+:deep(.token-select) {
+	background: #fff1f2;
+	color: #e11d48;
+	border-color: #fb718533;
+}
+
+:deep(.token-boolean) {
+	background: #f8fafc;
+	color: #64748b;
+	border-color: #cbd5e1;
+}
+
+:deep(.token-boolean.is-true) {
+	background: #ecfdf5;
+	color: #059669;
+	border-color: #10b98133;
+}
+
+:deep(.token-multiselect) {
+	background: #f0f9ff;
+	color: #0284c7;
+	border-color: #0ea5e933;
+}
+
 /* ── Boolean Toggle Switch Layout ── */
 .tg-switch {
 	position: relative;
@@ -2135,6 +2602,10 @@ input:checked + .tg-slider:before {
 	font-size: 12px;
 	font-weight: 600;
 	color: #64748b;
+}
+
+.cursor-pointer {
+	cursor: pointer;
 }
 
 /* ── Teleported Popover Modals ── */
@@ -2270,6 +2741,12 @@ input:checked + .tg-slider:before {
 
 .pipeline-step-card:hover {
 	border-color: #cbd5e1;
+}
+
+.json-textarea {
+	font-family: var(--fxr-font-mono, monospace);
+	min-height: 200px;
+	font-size: 12px;
 }
 
 /* ── HSL Layout helpers ── */
