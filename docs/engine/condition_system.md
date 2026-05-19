@@ -2,6 +2,16 @@
 
 FlexiRule employs a sophisticated, high-performance condition system that allows users to build complex logic visually while executing it with the speed and safety of native Python.
 
+## Ubiquitous Usage
+
+The Condition Builder is not limited to a single "Condition" node; it is a pervasive component used throughout FlexiRule to drive logic-based execution at multiple levels:
+
+- **Rule Trigger Eligibility**: Every Rule has a global condition defined at the DocType level. This is evaluated by the `RuleCoordinator` to decide if a rule should skip or start execution.
+- **Node-Level Branching**: The `Condition` action node uses it to split the execution path into True/False branches.
+- **Row-Level Assignment (`Run If`)**: In `Assignment` actions, each mutation can have its own "Run If" condition, allowing for granular, state-dependent updates within a single batch.
+- **Collection Filtering**: Used within `Loop` and `Collection` nodes to filter datasets or define exit criteria.
+- **Switch Case Logic**: The `Switch` action uses multiple condition blocks to determine which path to follow among many options.
+
 ## The Three-Tier Architecture
 
 The system is divided into three distinct layers, ensuring a clean separation between user interface, logic representation, and execution.

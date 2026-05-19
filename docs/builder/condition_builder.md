@@ -2,6 +2,8 @@
 
 The Condition Builder is a specialized Vue 3 workspace designed to let users author complex business logic through a structured, visual interface.
 
+Looking for how to use it? See the [Condition Builder User Guide](user_guide_conditions.md).
+
 ## Recursive Component Architecture
 
 The builder uses a hierarchical structure where components call each other recursively to support infinite nesting of logic.
