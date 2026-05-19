@@ -1,92 +1,104 @@
-# Condition System Technical Details
+# Condition System Architecture
 
-FlexiRule's condition system balances visual simplicity with Python's expressive power.
+FlexiRule employs a sophisticated, high-performance condition system that allows users to build complex logic visually while executing it with the speed and safety of native Python.
 
-## Compiled Expression Logic
+## The Three-Tier Architecture
 
-When a Rule is saved, the `ConditionCompiler` translates the visual JSON structure into a string.
+The system is divided into three distinct layers, ensuring a clean separation between user interface, logic representation, and execution.
 
-### Regex-Based Field Extraction
+### 1. The Visual Builder (Frontend)
+The **Condition Builder** is a recursive Vue 3 interface that allows users to construct logic trees.
+- **Input**: User interactions (drag-and-drop, field selection, operator picking).
+- **Output**: A standardized **JSON AST (Abstract Syntax Tree)**.
+- **Key Files**: `ConditionBuilder.vue`, `ConditionNode.vue`, `SimpleCondition.vue`.
+- **Detailed Guide**: [Condition Builder Frontend](../builder/condition_builder.md)
 
-To optimize performance, the `RuleCoordinator` must know which fields a condition depends on _without_ actually evaluating the Python string. This is done using regex patterns during compilation to extract **Watched Fields**:
+### 2. The Condition Compiler (Backend - Save-Time)
+To avoid the overhead of parsing JSON at runtime, FlexiRule uses a "Save-Time Compilation" strategy. When a Rule is saved, the `ConditionCompiler` processes the JSON AST.
+- **Input**: JSON AST.
+- **Output**: An optimized **Python Expression String** and a list of **Watched Fields**.
+- **Optimization**: The compiler translates visual groups into native Python `and`/`or` chains and collections into efficient generator expressions (e.g., `any(row.status == 'Open' for row in doc.items)`).
+- **Key Files**: `compiler.py`.
 
-```python
-COMPILED_FIELD_PATTERNS = (
-    re.compile(r"\b(?:doc|old_doc)\.([A-Za-z_][A-Za-z0-9_]*)"),
-    re.compile(r"\b(?:doc|old_doc)\.get\(\s*['\"]([^'\"]+)['\"]"),
-    re.compile(r"\bresolve\(\s*(?:doc|old_doc)\s*,\s*['\"]([^'\"]+)['\"]"),
-)
-```
+### 3. The Evaluator (Backend - Runtime)
+At runtime, the execution engine evaluates the pre-compiled Python string within a sandboxed environment.
+- **Input**: Compiled Python string + Execution Context (`doc`, `vars`, etc.).
+- **Execution**: Uses `frappe.safe_eval` for maximum performance with guaranteed security.
+- **Security**: Restricted to `SafeFrappeAPI`, preventing any write operations or unauthorized access during evaluation.
+- **Key Files**: `runtime_eval.py`, `engine.py`.
 
-- **Pruning**: If `doc.status` is extracted, the coordinator will only run the rule if `status` is in the document's changed fields.
+## The Condition Evaluator (`ConditionEvaluator`)
 
----
+While the compiler is the modern preferred path, FlexiRule maintains a `ConditionEvaluator` class that can interpret the JSON AST directly. This is primarily used for:
+1. **Legacy Compatibility**: Rules created before the pre-compiler was introduced.
+2. **Immediate Feedback**: Running "Live Tests" or "Simulations" in the builder without requiring a database save.
 
-## Evaluation Environment: SafeFrappeAPI
-
-To ensure that conditions cannot cause unintended side effects, they are executed via `frappe.safe_eval` with a restricted `frappe` global object called `SafeFrappeAPI`.
-
-### Whitelisted (Read-Only) Methods
-
-- `get_value`, `get_all`, `db_exists`, `get_meta`, `format_value`.
-- `utils`: Access to `frappe.utils` (date math, etc.).
-
-### Prohibited (Write) Methods
-
-Any attempt to call the following will raise a `PermissionError`:
-
-- `get_doc`, `new_doc`, `delete_doc`.
-- `db_set_value`, `db.sql`, `db.commit`, `db.rollback`.
-
----
-
-## Logical Grouping & Visual UI
-
-### Hierarchical Logical Grouping (AND/OR)
-
-- **Infinite Nesting**: Supports arbitrary depth of `AND` and `OR` groups.
-- **Short-Circuiting**: Compiled Python strings leverage native `and`/`or` short-circuiting for performance.
-
-### Visual Drag-and-Group UI
-
-- **Active Reactivity**: Moving a condition in the UI immediately re-calculates the logic tree's structure.
-- **Auto-Nesting**: Logic is scaffolded automatically when elements are dropped onto each other, ensuring a valid JSON AST is always maintained.
-
-### Collection Evaluation (V2)
-
-The V2 condition system introduces specialized nodes for collection processing:
-
-- **Recursive Groups**: Can target any iterable (e.g., `doc.items`) and apply sub-conditions to each element.
-- **Quantifiers**:
-    - `Any`: Returns true if at least one item matches the sub-conditions.
-    - `All`: Returns true only if all items match.
-    - `None`: Returns true if no items match.
-- **Contextual Aliasing**: When nesting collections, users can specify an **Alias** (e.g., `row`) which is then available in sub-conditions via `row.fieldname`.
+### Evaluation Lifecycle
+1. **Context Resolution**: The evaluator resolves values from the `doc` or `row` objects based on the node's `ref` path.
+2. **Recursive Traversal**: The evaluator walks the JSON tree, applying the logical operators (`AND`/`OR`) and quantifiers (`ANY`/`ALL`).
+3. **Coercion**: Values are automatically coerced (e.g., `1` for True, `0` for False) to ensure consistency with Frappe's field values.
 
 ---
 
-## Scope Resolution & Aliases
+## The Condition Compiler (`ConditionCompiler`)
 
-- `doc.fieldname`: `doc.get('fieldname')`
-- `old_doc.fieldname`: `old_doc.get('fieldname')`
-- `vars.varname`: `vars.get('varname')`
-- `item` / `row`: Accesses the current row within a collection query or loop.
-- **Custom Aliases**: Users can define custom aliases for collection iterators to prevent naming collisions in nested loops.
-- Deep Paths: `resolve(doc, 'items.0.qty')`
+The `ConditionCompiler` is responsible for transforming the structured JSON representation of conditions into a valid, safe, and optimized Python expression.
 
----
+### 1. JSON Schema (AST)
 
-## Collection Logic (V2)
+The compiler expects three types of nodes:
 
-The condition system supports specialized "Collection" nodes that can evaluate logic across child tables:
+- **Condition Node**: A leaf node representing a single comparison.
+  ```json
+  { "left": { "ref": "doc.status" }, "op": "==", "right": { "value": "Open" } }
+  ```
+- **Group Node**: A logical container for multiple nodes.
+  ```json
+  { "op": "and", "conditions": [...] }
+  ```
+- **Collection Node**: Logic applied across a child table or list.
+  ```json
+  { "op": "any", "collection": "doc.items", "alias": "item", "where": { ... } }
+  ```
 
-- **Any**: True if at least one row in the collection matches the sub-conditions.
-- **All**: True if every row in the collection matches the sub-conditions (vacuously True if the collection is empty).
-- **None**: True if no rows match the sub-conditions.
+### 2. Operator Translation
 
-## Security Constraints
+The compiler maps visual operators to Python equivalents and helper functions:
 
-All condition evaluation (both Python-based and JSON-based) is strictly read-only:
+| Visual Operator | Python/Helper Expression |
+| :--- | :--- |
+| `==`, `!=`, `>`, `<` | Native Python operators |
+| `is_set` | `(lhs is not None and lhs != '')` |
+| `is_empty` | `is_empty_value(lhs)` |
+| `contains` | `(rhs in str(lhs) if lhs else False)` |
+| `length_gt` | `(length_of(lhs) > rhs)` |
+| `in` | `check_link_match(lhs, rhs, 'in')` (for Link fields) |
 
-- **SafeFrappeAPI**: As detailed above, write operations are strictly prohibited.
-- **Pure Logic**: The `method` value type (calling arbitrary Python functions) has been deprecated and removed for security reasons.
+### 3. Collection Logic (any/all/none)
+
+One of the most powerful features of the compiler is how it handles child tables using Python generator expressions:
+
+- **Any**: `any(condition for alias in (collection or []))`
+- **All**: `all(condition for alias in (collection or []))`
+- **None**: `not any(condition for alias in (collection or []))`
+
+Example: "Check if any item has a quantity greater than 10" becomes:
+`any(item.get('qty') > 10 for item in (doc.get('items') or []))`
+
+### 4. Scope Resolution
+
+The compiler intelligently resolves variable scopes:
+- `doc.status` -> `doc.get('status')`
+- `row.price` -> `row.get('price')`
+- Deep paths like `doc.owner.email` are wrapped in a `resolve()` helper: `resolve(doc, 'owner.email')`.
+
+## Performance: Why Pre-Compilation?
+
+Traditional no-code engines often interpret JSON logic trees at runtime. This involves recursive function calls and dictionary lookups for every single comparison, which is slow.
+
+FlexiRule's approach provides several advantages:
+
+1.  **Fast Evaluation**: Compiled Python strings run at near-native speeds.
+2.  **Short-Circuiting**: We leverage Python's native `and`/`or` short-circuiting. If the first part of an `AND` is false, the rest isn't even evaluated.
+3.  **Static Analysis (Watched Fields)**: By compiling at save-time, we can use regex to extract which fields the condition depends on. This allows the `RuleCoordinator` to skip rule execution entirely if none of the "Watched Fields" have changed, drastically reducing CPU load.
+4.  **Dry-Run Validation**: We can validate the syntax and safety of the generated Python code before the rule is even activated.
