@@ -59,10 +59,10 @@ A sophisticated rich-text editor based on Tiptap that seamlessly blends static t
 
 ### ✨ Key Features & Innovation
 
-- **Visual Logic Blocks:** Instead of writing complex Jinja tags (`{% if ... %}`), users insert visual "Badges" for conditions and loops.
+- **Visual Logic Blocks:** Instead of writing complex Jinja tags (`{% raw %}{% if ... %}{% endraw %}`), users insert visual "Badges" for conditions and loops.
 - **Nested Recursive Editing:** Double-clicking a logic badge opens a "Bottom Panel" containing another instance of `TextGeneratorControl`, allowing users to define content for "IF TRUE", "ELSE", or "LOOP BODY" in a structured, hierarchical way.
 - **Slash Commands & Mentions:**
-    - Typing `@` or `{{` triggers a field picker for inserting dynamic variables.
+    - Typing `{% raw %}{{{% endraw %}` or `@` triggers a field picker for inserting dynamic variables.
     - Typing `/` opens a logic block picker.
 - **Live Jinja Synchronization:** Seamlessly toggles between a "Visual" mode and a "Raw Jinja" mode, ensuring compatibility for power users while maintaining simplicity for others.
 - **Context-Aware Iterators:** Inside a loop block, the variable picker automatically includes properties of the current loop item (e.g., `item.qty`).
