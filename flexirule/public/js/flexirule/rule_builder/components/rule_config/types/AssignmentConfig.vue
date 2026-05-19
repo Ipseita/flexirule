@@ -39,7 +39,7 @@
 		<div class="assignments-list">
 			<div
 				v-for="(assignment, index) in assignments"
-				:key="index"
+				:key="assignment.id || index"
 				class="assignment-grid-row align-items-center mb-2"
 			>
 				<!-- Target ComboBox with Type Badge support -->
@@ -371,9 +371,10 @@ watch(
 		parsed = parsed.map((a) => {
 			const value_tpl = a.value_template || a.value || "";
 			return {
+				id: a.id || frappe.utils.get_random(10),
 				target: a.target || "",
 				operator: a.operator || "set",
-				value_template_ui: a.value_template_ui || "",
+				value_template_ui: a.value_template_ui || { mode: "static", value: "" },
 				when_condition: a.when_condition || null,
 				when_expression: a.when_expression || a.when || "",
 				value_template: value_tpl,
@@ -382,7 +383,7 @@ watch(
 		});
 
 		if (JSON.stringify(parsed) !== JSON.stringify(assignments.value)) {
-			assignments.value = JSON.parse(JSON.stringify(parsed));
+			assignments.value = structuredClone(parsed);
 		}
 	},
 	{ immediate: true, deep: true }
@@ -427,28 +428,34 @@ const targetOptions = computed(() => {
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
+let syncTimer = null;
 function syncToNode() {
-	const clean = assignments.value.map((a) => ({
-		target: a.target,
-		operator: a.operator,
-		when_condition: a.when_condition || null,
-		when_expression: a.when_condition ? "" : a.when_expression || "",
-		value_template_ui: a.value_template_ui,
-		value_template: a.value_template,
-		value: a.value_template, // standardized output key alignment
-	}));
-	update_action_field("config", JSON.stringify(clean));
-	store.mark_dirty();
+	if (syncTimer) clearTimeout(syncTimer);
+	syncTimer = setTimeout(() => {
+		const clean = assignments.value.map((a) => ({
+			id: a.id,
+			target: a.target,
+			operator: a.operator,
+			when_condition: a.when_condition || null,
+			when_expression: a.when_condition ? "" : a.when_expression || "",
+			value_template_ui: a.value_template_ui,
+			value_template: a.value_template,
+			value: a.value_template, // standardized output key alignment
+		}));
+		update_action_field("config", JSON.stringify(clean));
+		store.mark_dirty();
+	}, 300);
 }
 
 function addAssignment() {
 	assignments.value.push({
+		id: frappe.utils.get_random(10),
 		target: "",
 		operator: "set",
 		value_mode: "template",
 		when_condition: null,
 		when_expression: "",
-		value_template_ui: { version: 2, segments: [] },
+		value_template_ui: { mode: "static", value: "" },
 		value_template: "",
 		value: "",
 	});
@@ -477,16 +484,8 @@ function clearAssignments() {
 
 function onTargetChange(index, value) {
 	assignments.value[index].target = value;
-	// Reset operator if it's no longer compatible with new target type
-	const available = getAvailableOperators(value).map((o) => o.value);
-	if (!available.includes(assignments.value[index].operator)) {
-		const fieldtype = getTargetFieldtype(value);
-		if (fieldtype === "Check") {
-			assignments.value[index].operator = "toggle";
-		} else {
-			assignments.value[index].operator = "set";
-		}
-	}
+	// User suggested showing validation warning instead of auto-mutating.
+	// We'll keep the value and let validate() catch incompatibilities.
 	syncToNode();
 }
 
@@ -510,7 +509,7 @@ function openWhenConditionEditor(index) {
 	whenEditor.value = {
 		open: true,
 		index,
-		draft: JSON.parse(JSON.stringify(current?.when_condition || fallback)),
+		draft: structuredClone(current?.when_condition || fallback),
 	};
 }
 
@@ -552,7 +551,7 @@ function onOperatorChange(index, value) {
 	assignments.value[index].operator = value;
 	// Clear value template if operator no longer needs it
 	if (!needsValue(value)) {
-		assignments.value[index].value_template_ui = { version: 2, segments: [] };
+		assignments.value[index].value_template_ui = { mode: "static", value: "" };
 		assignments.value[index].value_template = "";
 		assignments.value[index].value = "";
 	}
@@ -566,7 +565,13 @@ function compileStructuredValueToJinja(val) {
 	}
 	if (val.mode === "variable") {
 		let path = val.path;
-		if (path && !path.startsWith("vars.") && !path.startsWith("doc.")) {
+		if (
+			path &&
+			!path.startsWith("vars.") &&
+			!path.startsWith("doc.") &&
+			!path.startsWith("ctx.") &&
+			!path.startsWith("env.")
+		) {
 			const isVar = (variable_options.value || []).some(
 				(opt) => opt.value === path && opt.is_variable
 			);
@@ -581,7 +586,7 @@ function compileStructuredValueToJinja(val) {
 		const args = Object.entries(val.config || {})
 			.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
 			.join(", ");
-		return `{{ resolve("${val.resolver}", ${args}) }}`;
+		return `{{ resolve(${JSON.stringify(val.resolver)}, ${args}) }}`;
 	}
 	if (val.mode === "formatter") {
 		return `{{ format(${JSON.stringify(val.formatter)}, ${JSON.stringify(val.options)}) }}`;
@@ -590,88 +595,6 @@ function compileStructuredValueToJinja(val) {
 		return String(val.value ?? "");
 	}
 	return "";
-}
-
-/**
- * Compile ValueResolverControl structured state → Jinja {{ expr }} string.
- * Mirrors the expressionSnippet logic in ValueResolverControl.vue.
- */
-function compileValueResolverToJinja(s) {
-	if (!s || !s.kind) return "";
-
-	if (s.kind === "date_formula") {
-		const baseExpr = s.base_type === "today" ? "frappe.utils.nowdate()" : `doc.${s.base_field}`;
-		const offset =
-			s.offset_sign === "-" ? -Math.abs(s.offset_value || 0) : Math.abs(s.offset_value || 0);
-		if (offset === 0) return `{{ ${baseExpr} }}`;
-		if (s.offset_unit === "days") return `{{ frappe.utils.add_days(${baseExpr}, ${offset}) }}`;
-		return `{{ frappe.utils.add_to_date(${baseExpr}, ${s.offset_unit}=${offset}) }}`;
-	}
-
-	if (s.kind === "math_formula") {
-		const a = s.field_a ? `frappe.utils.flt(doc.${s.field_a})` : "0";
-		const b =
-			s.field_b_type === "field"
-				? s.field_b
-					? `frappe.utils.flt(doc.${s.field_b})`
-					: "0"
-				: String(s.constant_b ?? 0);
-		const prec = s.precision ?? 2;
-		return `{{ frappe.utils.flt(${a} ${s.math_op || "+"} ${b}, ${prec}) }}`;
-	}
-
-	if (s.kind === "date_diff") {
-		const start =
-			s.diff_start_type === "today" ? "frappe.utils.nowdate()" : `doc.${s.diff_start_field}`;
-		const end =
-			s.diff_end_type === "today" ? "frappe.utils.nowdate()" : `doc.${s.diff_end_field}`;
-		if (s.diff_unit === "days") return `{{ frappe.utils.date_diff(${end}, ${start}) }}`;
-		if (s.diff_unit === "months") return `{{ frappe.utils.month_diff(${end}, ${start}) }}`;
-		return `{{ int(frappe.utils.month_diff(${end}, ${start}) / 12) }}`;
-	}
-
-	if (s.kind === "child_aggregation") {
-		const tbl = s.agg_table || "items";
-		const fld = s.agg_field || "amount";
-		if (s.agg_op === "sum")
-			return `{{ sum([frappe.utils.flt(row.${fld}) for row in doc.get("${tbl}")]) }}`;
-		if (s.agg_op === "avg")
-			return `{{ sum([frappe.utils.flt(row.${fld}) for row in doc.get("${tbl}")]) / max(len(doc.get("${tbl}")), 1) }}`;
-		if (s.agg_op === "count") return `{{ len(doc.get("${tbl}")) }}`;
-	}
-
-	if (s.kind === "string_formula") {
-		const a = s.str_a_type === "field" ? `doc.${s.str_a || ""}` : `"${s.str_a || ""}"`;
-		if (s.str_op === "concat") {
-			const b = s.str_b_type === "field" ? `doc.${s.str_b || ""}` : `"${s.str_b || ""}"`;
-			return `{{ str(${a} or "") + str(${b} or "") }}`;
-		}
-		if (s.str_op === "fmt_money") {
-			const curr = s.str_b_type === "field" ? `doc.${s.str_b || ""}` : `"${s.str_b || ""}"`;
-			return `{{ frappe.utils.fmt_money(${a}, currency=${curr}) }}`;
-		}
-		if (s.str_op === "uppercase") return `{{ str(${a} or "").upper() }}`;
-		if (s.str_op === "lowercase") return `{{ str(${a} or "").lower() }}`;
-	}
-
-	if (s.kind === "system_context") {
-		if (s.sys_token === "user") return `{{ frappe.session.user }}`;
-		if (s.sys_token === "role_check")
-			return `{{ "${s.sys_role || ""}" in frappe.get_roles(frappe.session.user) }}`;
-	}
-
-	return "";
-}
-
-/**
- * Handler for ValueResolverControl updates.
- */
-function updateResolverTemplate(index, value) {
-	assignments.value[index].value_template_ui = value;
-	const compiled = compileValueResolverToJinja(value);
-	assignments.value[index].value_template = compiled;
-	assignments.value[index].value = compiled;
-	syncToNode();
 }
 
 function updateTemplate(index, value) {
@@ -699,21 +622,44 @@ function updateTemplate(index, value) {
 
 function validate() {
 	const errors = [];
+
+	if (assignments.value.length === 0) {
+		errors.push(__("At least one assignment is required."));
+	}
+
 	assignments.value.forEach((a, idx) => {
 		const n = idx + 1;
 		if (!a.target) errors.push(__(`Assignment #${n}: Target is required`));
 		if (!a.operator) errors.push(__(`Assignment #${n}: Operator is required`));
-		if (needsValue(a.operator)) {
-			const ui = a.value_template_ui;
-			if (!ui || (!Array.isArray(ui.segments) && !ui.mode)) {
+
+		if (a.target && a.operator) {
+			const available = getAvailableOperators(a.target).map((o) => o.value);
+			if (!available.includes(a.operator)) {
 				errors.push(
-					__(`Assignment #${n}: Value Template is required for operator '${a.operator}'`)
+					__(
+						`Assignment #${n}: Operator '${a.operator}' is not compatible with target type.`
+					)
 				);
 			}
 		}
+
+		if (needsValue(a.operator)) {
+			const ui = a.value_template_ui;
+			const hasValue =
+				ui && (ui.mode || (Array.isArray(ui.segments) && ui.segments.length > 0));
+			if (!hasValue) {
+				errors.push(__(`Assignment #${n}: Value is required for operator '${a.operator}'`));
+			}
+		}
+
 		// Target path validation
-		if (a.target && !a.target.startsWith("doc.") && !a.target.startsWith("vars.")) {
-			errors.push(__(`Assignment #${n}: Target must start with 'doc.' or 'vars.'`));
+		const allowedPrefixes = ["doc.", "vars.", "ctx.", "env.", "loop.", "temp."];
+		if (a.target && !allowedPrefixes.some((p) => a.target.startsWith(p))) {
+			errors.push(
+				__(
+					`Assignment #${n}: Target must start with one of: ${allowedPrefixes.join(", ")}`
+				)
+			);
 		}
 	});
 	return { valid: errors.length === 0, errors };

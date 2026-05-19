@@ -71,15 +71,15 @@
 						<div class="tg-switch">
 							<input
 								type="checkbox"
-								id="static-bool-toggle"
+								:id="checkboxId"
 								:checked="!!staticValue"
 								:disabled="disabled || controlReadOnly"
 								@change="updateStaticValue($event.target.checked ? 1 : 0)"
 							/>
-							<label class="tg-slider" for="static-bool-toggle"></label>
+							<label class="tg-slider" :for="checkboxId"></label>
 						</div>
 						<label
-							for="static-bool-toggle"
+							:for="checkboxId"
 							class="tg-switch-label mb-0 ms-2 cursor-pointer"
 						>
 							{{ !!staticValue ? __("Yes") : __("No") }}
@@ -100,7 +100,7 @@
 			</div>
 
 			<!-- Dynamic Visual Tiptap Editor (Text fields or when dynamic is enabled) -->
-			<div v-show="isDynamicMode || !isStaticSupported" class="fsvc-editor-container flex-1">
+			<div v-if="isDynamicMode || !isStaticSupported" class="fsvc-editor-container flex-1">
 				<div class="fsvc-editor-wrapper">
 					<editor-content :editor="editor" class="fsvc-tiptap-editor" />
 
@@ -509,12 +509,12 @@
 							<div class="tg-switch">
 								<input
 									type="checkbox"
-									id="token-bool-toggle"
+									:id="tokenCheckboxId"
 									v-model="tokenDraftAttrs.value"
 								/>
-								<label class="tg-slider" for="token-bool-toggle"></label>
+								<label class="tg-slider" :for="tokenCheckboxId"></label>
 							</div>
-							<label for="token-bool-toggle" class="tg-switch-label mb-0">{{
+							<label :for="tokenCheckboxId" class="tg-switch-label mb-0">{{
 								tokenDraftAttrs.value ? __("Enabled (Yes)") : __("Disabled (No)")
 							}}</label>
 						</div>
@@ -716,6 +716,10 @@ import ConditionBuilder from "../components/condition_builder/ConditionBuilder.v
 
 const ControlFactory = defineAsyncComponent(() => import("./ControlFactory.vue"));
 
+const componentId = Math.random().toString(36).slice(2, 9);
+const checkboxId = `static-bool-toggle-${componentId}`;
+const tokenCheckboxId = `token-bool-toggle-${componentId}`;
+
 // ─── Commands registry — one source of truth ─────────────────────────────────
 const ALL_SLASH_COMMANDS = [
 	{ id: "formula", label: __("Formula"), type: "logic", icon: "🧮", groups: ["*"] },
@@ -731,7 +735,7 @@ const ALL_SLASH_COMMANDS = [
 	{ id: "localization", label: __("Translation"), type: "logic", icon: "🌐", groups: ["text"] },
 	{ id: "condition", label: __("Condition"), type: "logic", icon: "🔀", groups: ["*"] },
 	{ id: "link", label: __("Link Picker"), type: "logic", icon: "🔗", groups: ["link"] },
-	{ id: "dynamic-link", label: __("Dynamic Link"), type: "logic", icon: "🧩", groups: ["link"] },
+	{ id: "dynamic_link", label: __("Dynamic Link"), type: "logic", icon: "🧩", groups: ["link"] },
 	{ id: "json", label: __("JSON Editor"), type: "logic", icon: "📦", groups: ["*"] },
 	{ id: "add-key", label: __("Add Key/Value"), type: "logic", icon: "🔑", groups: ["*"] },
 	{ id: "clear", label: __("Clear Editor"), type: "logic", icon: "🗑️", groups: ["*"] },
@@ -1442,7 +1446,7 @@ const editor = new Editor({
 						localization: "localizationToken",
 						condition: "conditionToken",
 						link: "linkToken",
-						"dynamic-link": "dynamicLinkToken",
+						dynamic_link: "dynamicLinkToken",
 						json: "resolverToken", // For now map JSON to resolver or a generic handler
 						"add-key": "resolverToken",
 						select: "selectToken",
@@ -1541,12 +1545,7 @@ const editor = new Editor({
 
 					// ── 4. Props allowedModes override (explicit allowlist) ──────
 					if (props.allowedModes && props.allowedModes.length > 0) {
-						filtered = filtered.filter(
-							(c) =>
-								props.allowedModes.includes(c.id) ||
-								(c.id === "dynamic-link" &&
-									props.allowedModes.includes("dynamic_link"))
-						);
+						filtered = filtered.filter((c) => props.allowedModes.includes(c.id));
 					}
 
 					// ── 5. Caller-level denylist (highest priority) ──────────────
@@ -1890,6 +1889,27 @@ watch(
 	() => props.modelValue,
 	(val) => {
 		if (emitting) return;
+
+		// Deep equality check to avoid redundant updates/loops
+		const currentVal = isDynamicMode.value
+			? serializeToStructuredValue()
+			: props.fieldType === "Dynamic Link"
+				? {
+						mode: "dynamic_link",
+						reference_field: props.referenceField || "",
+						doctype: staticDynamicLinkDoctype.value || "",
+						value: staticValue.value || "",
+					}
+				: props.fieldType === "Link"
+					? {
+							mode: "link",
+							doctype: props.referenceDoctype || "",
+							value: staticValue.value || "",
+						}
+					: { mode: "static", value: staticValue.value };
+
+		if (JSON.stringify(val) === JSON.stringify(currentVal)) return;
+
 		if (val && typeof val === "object") {
 			const isStaticallyHandledLink =
 				isStaticSupported.value &&
@@ -1985,7 +2005,7 @@ function openTokenEditor(node, pos, typeOverride = null) {
 
 	// Populate Token Edit Values based on token node attributes
 	const name = node.type.name;
-	const attrs = node.attrs ? JSON.parse(JSON.stringify(node.attrs)) : {}; // clone attributes
+	const attrs = node.attrs ? structuredClone(node.attrs) : {}; // clone attributes
 
 	if (name === "variableToken") {
 		activeTokenType.value = null; // Variable node requires no dialog
@@ -2198,6 +2218,18 @@ function insertVarInFormula(v) {
 }
 
 // ─── Expanded Mode Preview Helper (removed — expand button no longer shown) ───
+
+// Reset static value when doctype changes in dynamic link mode to prevent stale data
+watch(
+	() => staticDynamicLinkDoctype.value,
+	(newDoctype, oldDoctype) => {
+		if (emitting) return;
+		if (oldDoctype !== undefined && newDoctype !== oldDoctype) {
+			staticValue.value = "";
+			emitChanges();
+		}
+	}
+);
 
 // Dynamic link target doctype resolution
 const resolvedDynamicDoctype = computed(() => {
