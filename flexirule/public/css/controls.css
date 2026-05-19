@@ -116,32 +116,37 @@
 	box-shadow: var(--fxr-shadow-focus) !important;
 }
 
+.fxr-input-group.has-floating-label:focus-within {
+	z-index: 5;
+}
+
 .fxr-input-group.has-floating-label .fxr-label {
 	position: absolute;
-	left: var(--fxr-input-padding-x);
+	left: calc(var(--fxr-input-padding-x) + 2px);
 	top: 50%;
 	transform: translateY(-50%);
-	font-size: var(--fxr-text-sm);
+	font-size: var(--fxr-text-base);
 	color: var(--fxr-text-muted);
 	pointer-events: none;
-	transition: transform var(--fxr-transition-fast), top var(--fxr-transition-fast),
-		font-size var(--fxr-transition-fast), color var(--fxr-transition-fast);
+	transition: all var(--fxr-transition-slow);
 	background: transparent;
-	padding: 0 6px;
+	padding: 0 4px;
 	z-index: 2;
 	margin-bottom: 0 !important;
+	transform-origin: left top;
 }
 
 /* Floating Label Animation States */
 .fxr-input-group.has-floating-label.has-value .fxr-label,
 .fxr-input-group.has-floating-label:focus-within .fxr-label {
 	top: 0;
-	transform: translateY(-50%) scale(0.8);
+	transform: translateY(-50%) scale(0.85);
 	background: var(--fxr-bg-card, #ffffff);
 	color: var(--fxr-node-accent, var(--fxr-accent));
 	font-weight: var(--fxr-weight-semibold);
-	letter-spacing: 0.02em;
+	letter-spacing: 0.01em;
 	z-index: 10;
+	opacity: 1;
 }
 
 /* ─── Unified Input Styles ─── */
