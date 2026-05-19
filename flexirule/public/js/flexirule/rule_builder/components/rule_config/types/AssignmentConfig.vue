@@ -74,41 +74,7 @@
 				<div class="grid-col-value">
 					<template v-if="needsValue(assignment.operator)">
 						<div class="value-mode-wrap">
-							<!-- Mode toggle -->
-							<button
-								class="fxr-btn fxr-btn--icon fxr-btn--sm fxr-btn--ghost value-mode-toggle"
-								:title="
-									assignment.value_mode === 'resolver'
-										? __('Switch to Template Editor')
-										: __('Switch to Formula Resolver')
-								"
-								:disabled="isReadOnly"
-								@click="toggleValueMode(index)"
-							>
-								<i
-									:class="
-										assignment.value_mode === 'resolver'
-											? 'fa fa-pencil'
-											: 'fa fa-calculator'
-									"
-								></i>
-							</button>
-							<!-- Resolver mode -->
-							<ValueResolverControl
-								v-if="assignment.value_mode === 'resolver'"
-								class="flex-1 min-w-0"
-								:modelValue="assignment.value_template_ui"
-								:doctype="
-									getTargetDoctype(assignment.target) ||
-									store.rule_doc?.document_type ||
-									''
-								"
-								:readOnly="isReadOnly"
-								@update:modelValue="(val) => updateResolverTemplate(index, val)"
-							/>
-							<!-- Template (TipTap) mode -->
 							<FlexStructuredValueControl
-								v-else
 								class="flex-1 min-w-0"
 								:fieldType="getTargetFieldtype(assignment.target) || 'Data'"
 								:modelValue="assignment.value_template_ui"
@@ -120,6 +86,7 @@
 								:referenceDoctype="getTargetDoctype(assignment.target)"
 								:placeholder="__('Type value...')"
 								:options="getTargetOptions(assignment.target)"
+								:doctypeOptions="targetOptions"
 								@update:modelValue="(val) => updateTemplate(index, val)"
 							/>
 						</div>
@@ -270,7 +237,6 @@ import { computed, watch, ref } from "vue";
 import { useActionConfig } from "../../../composables/useActionConfig";
 import ComboBoxControl from "../../../controls/ComboBoxControl.vue";
 import FlexStructuredValueControl from "../../../controls/FlexStructuredValueControl.vue";
-import ValueResolverControl from "../../../controls/ValueResolverControl.vue";
 import ConditionBuilder from "../../condition_builder/ConditionBuilder.vue";
 import { compileSegmentsToJinja } from "../../../utils/text_generator";
 import { ASSIGNMENT_OPERATOR_METADATA } from "../../../../core/contracts.js";
@@ -284,7 +250,17 @@ const props = defineProps({
 const isReadOnly = computed(() => !!props.readOnly || !!props.read_only);
 
 const { doctype_fields, variable_options, update_action_field, store } = useActionConfig(props);
-const supportedTemplateModes = ["formula", "resolver", "link", "dynamic-link"];
+const supportedTemplateModes = [
+	"formula",
+	"resolver",
+	"link",
+	"dynamic-link",
+	"select",
+	"boolean",
+	"multiselect",
+	"json",
+	"add-key",
+];
 const whenEditor = ref({ open: false, index: -1, draft: null });
 
 // ─── Operator Helpers ────────────────────────────────────────────────────────
@@ -393,17 +369,10 @@ watch(
 		// Map parsed to ensure both value_template and value are populated on load
 		parsed = parsed.map((a) => {
 			const value_tpl = a.value_template || a.value || "";
-			// Auto-detect resolver mode: value_template_ui has a `kind` field (no `segments` array)
-			const isResolverUi =
-				a.value_template_ui &&
-				typeof a.value_template_ui === "object" &&
-				"kind" in a.value_template_ui &&
-				!Array.isArray(a.value_template_ui.segments);
 			return {
 				target: a.target || "",
 				operator: a.operator || "set",
-				value_mode: isResolverUi ? "resolver" : "template",
-				value_template_ui: a.value_template_ui || { version: 2, segments: [] },
+				value_template_ui: a.value_template_ui || "",
 				when_condition: a.when_condition || null,
 				when_expression: a.when_expression || a.when || "",
 				value_template: value_tpl,
@@ -461,7 +430,6 @@ function syncToNode() {
 	const clean = assignments.value.map((a) => ({
 		target: a.target,
 		operator: a.operator,
-		value_mode: a.value_mode || "template",
 		when_condition: a.when_condition || null,
 		when_expression: a.when_condition ? "" : a.when_expression || "",
 		value_template_ui: a.value_template_ui,
@@ -574,21 +542,6 @@ function getDefaultResolverKind(target) {
 	return "string_formula";
 }
 
-function toggleValueMode(index) {
-	const current = assignments.value[index].value_mode || "template";
-	const next = current === "resolver" ? "template" : "resolver";
-	assignments.value[index].value_mode = next;
-	// Reset UI state when switching modes
-	if (next === "resolver") {
-		const defaultKind = getDefaultResolverKind(assignments.value[index].target);
-		assignments.value[index].value_template_ui = { kind: defaultKind };
-	} else {
-		assignments.value[index].value_template_ui = { version: 2, segments: [] };
-	}
-	assignments.value[index].value_template = "";
-	assignments.value[index].value = "";
-	syncToNode();
-}
 
 function onOperatorChange(index, value) {
 	assignments.value[index].operator = value;
