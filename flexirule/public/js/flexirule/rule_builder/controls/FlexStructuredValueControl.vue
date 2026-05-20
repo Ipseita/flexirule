@@ -135,6 +135,22 @@
 					</div>
 				</div>
 			</div>
+
+			<!-- Mode Toggle Button (only when static is supported and not read-only) -->
+			<div v-if="isStaticSupported && !controlReadOnly" class="fsvc-mode-toggle-wrap">
+				<button
+					type="button"
+					class="fsvc-toggle-btn"
+					:title="
+						isDynamicMode
+							? __('Switch to Static Value')
+							: __('Switch to Expression / Formula')
+					"
+					@click.stop="toggleDynamicMode"
+				>
+					<i :class="isDynamicMode ? 'fa fa-keyboard-o' : 'fa fa-bolt'"></i>
+				</button>
+			</div>
 		</div>
 
 		<!-- ── Teleported Custom Token Popover (ValueResolverControl Style) ── -->
@@ -1820,25 +1836,31 @@ function toggleDynamicMode() {
 		emitting = false;
 		nextTick(() => editor.commands.focus());
 	} else {
-		// Clearing dynamic value and switching back to static representation
-		staticValue.value = "";
-		updateStaticValue("");
+		// Try to extract static text from the editor before switching back
+		const struct = serializeToStructuredValue();
+		if (struct && struct.mode === "static") {
+			staticValue.value = struct.value || "";
+		} else {
+			staticValue.value = "";
+		}
+		updateStaticValue(staticValue.value);
 	}
 }
 
 function onStaticKeydown(e) {
 	if (controlReadOnly.value || props.disabled) return;
 
-	// In Select mode, capture alphanumeric keys to trigger dynamic editor?
-	// Or only @ and /
+	// Typing @ or / on a static control (Check, Select, Link) switches to dynamic mode.
+	// We clear the existing static value so the trigger char starts fresh.
 	if (e.key === "@" || e.key === "/") {
 		e.preventDefault();
 		e.stopPropagation();
 
 		isDynamicMode.value = true;
 
+		// Clear editor — don't carry over static value like "1" from Check toggles
 		emitting = true;
-		editor.commands.setContent(String(staticValue.value || ""));
+		editor.commands.setContent("");
 		emitting = false;
 
 		nextTick(() => {
@@ -1916,6 +1938,34 @@ watch(
 	{ immediate: true, deep: true }
 );
 
+// Watch fieldType changes to correctly re-evaluate static/dynamic modes
+watch(
+	() => props.fieldType,
+	(newType) => {
+		const val = props.modelValue;
+		const isStaticSupp = !PURE_TEXT_FIELDTYPES.has(newType);
+		if (val && typeof val === "object") {
+			const isStaticallyHandledLink =
+				isStaticSupp &&
+				((newType === "Link" && val.mode === "link") ||
+					(newType === "Dynamic Link" && val.mode === "dynamic_link"));
+
+			if (val.mode && val.mode !== "static" && !isStaticallyHandledLink) {
+				isDynamicMode.value = true;
+			} else {
+				isDynamicMode.value = false;
+				staticValue.value = val.value ?? "";
+				if (newType === "Dynamic Link") {
+					staticDynamicLinkDoctype.value = val.doctype || "";
+				}
+			}
+		} else {
+			isDynamicMode.value = false;
+			staticValue.value = val || "";
+		}
+	}
+);
+
 // ─── Built-in Token Popover Editors (Configuration Panels) ───
 
 const activeTokenPresentation = computed(() => {
@@ -1955,7 +2005,7 @@ function updatePopoverPosition() {
 	} else {
 		// Position below the control
 		popoverStyle.value = {
-			position: "fixed",
+			position: "absolute",
 			top: `${rect.bottom + 4}px`,
 			left: `${rect.left}px`,
 			width: `${Math.max(rect.width, 360)}px`,
@@ -2307,6 +2357,34 @@ onBeforeUnmount(() => {
 	flex: 1;
 	min-width: 0;
 	height: 100%;
+}
+
+.fsvc-mode-toggle-wrap {
+	display: flex;
+	align-items: center;
+	padding-right: 6px;
+	border-left: 1px solid var(--fxr-border, #e2e8f0);
+	margin-left: 4px;
+	height: 24px;
+}
+
+.fsvc-toggle-btn {
+	background: transparent;
+	border: none;
+	width: 24px;
+	height: 24px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--fxr-text-muted, #64748b);
+	cursor: pointer;
+	border-radius: var(--fxr-radius-sm, 4px);
+	transition: all 0.2s ease;
+}
+
+.fsvc-toggle-btn:hover {
+	color: var(--fxr-accent, #2490ef);
+	background: var(--fxr-accent-light, #f0f7ff);
 }
 
 /* Support full width for select controls in static mode */

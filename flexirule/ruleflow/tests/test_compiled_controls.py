@@ -234,9 +234,9 @@ class TestCompiledControls(FrappeTestCase):
 		row = json.loads(action.config)[0]
 		self.assertEqual(row.get("value_source"), "literal")
 		self.assertEqual(row.get("value_literal"), "Compiled Literal")
-		when_expression = row.get("when_expression", "")
-		self.assertIn("Open", when_expression)
-		self.assertIn("status", when_expression)
+		python_expression = row.get("pythonExpression", "")
+		self.assertIn("Open", python_expression)
+		self.assertIn("status", python_expression)
 
 	def test_assignment_row_when_expression_skips_row(self):
 		todo = frappe.get_doc({"doctype": "ToDo", "description": "Initial"}).insert(ignore_permissions=True)

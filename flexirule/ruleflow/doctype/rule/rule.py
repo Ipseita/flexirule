@@ -598,23 +598,29 @@ class Rule(Document):
 					if not isinstance(assignment, dict):
 						continue
 
+					# Generate or preserve name key
+					if not assignment.get("name"):
+						assignment["name"] = frappe.generate_hash(length=9)
+						changed = True
+
 					text_ui = assignment.get("text_generator_ui")
 					if isinstance(text_ui, dict):
 						segments = text_ui.get("segments") or []
 						compiled = self._compile_segments_v2(
 							segments, action.action_label or action.action_id, known_var_roots
 						)
-						assignment["value"] = compiled
-						assignment["value_template"] = compiled
-						changed = True
+						if not (isinstance(assignment.get("value"), dict) and "mode" in assignment["value"]):
+							assignment["value"] = compiled
+							assignment["value_template"] = compiled
+							changed = True
 
 					compiled_when = self._compile_assignment_when_expression(
 						assignment,
 						condition_compiler,
 						action_label=action.action_label or action.action_id or _("Assignment"),
 					)
-					if assignment.get("when_expression") != compiled_when:
-						assignment["when_expression"] = compiled_when
+					if assignment.get("pythonExpression") != compiled_when:
+						assignment["pythonExpression"] = compiled_when
 						changed = True
 
 					compiled_operand = self._compile_assignment_operand_metadata(assignment, known_var_roots)
@@ -658,6 +664,38 @@ class Rule(Document):
 				}
 		except Exception:
 			pass
+
+		# Check if the new unified 'value' key holds a structured object
+		val_obj = assignment.get("value")
+		if isinstance(val_obj, dict) and "mode" in val_obj:
+			mode = val_obj.get("mode")
+			if mode in {"static", "link", "dynamic_link"}:
+				return {
+					"value_source": "literal",
+					"value_literal": val_obj.get("value"),
+					"value_path": None,
+					"value_template": None,
+				}
+			if mode == "variable":
+				normalized_path = self._normalize_context_ref(
+					val_obj.get("path") or "", known_var_roots, extra_allowed_roots=None
+				)
+				return {
+					"value_source": "context_path",
+					"value_literal": None,
+					"value_path": self._normalize_assignment_context_path(normalized_path),
+					"value_template": None,
+				}
+			# Formula/Resolver/Formatter/etc compile to Jinja
+			from flexirule.ruleflow.core.action_handlers.assignment import AssignmentHandler
+
+			compiled_jinja = AssignmentHandler._compile_structured_value_to_jinja(val_obj)
+			return {
+				"value_source": "jinja",
+				"value_literal": None,
+				"value_path": None,
+				"value_template": compiled_jinja,
+			}
 
 		value_ui = assignment.get("value_template_ui")
 		if not isinstance(value_ui, dict):

@@ -172,12 +172,73 @@ class AssignmentHandler(ActionHandler):
 		return tuple(compiled_rows)
 
 	@classmethod
+	def _compile_structured_value_to_jinja(cls, val: dict) -> str:
+		if not val:
+			return ""
+		mode = val.get("mode")
+		if mode in {"static", "link", "dynamic_link"}:
+			return str(val.get("value") if val.get("value") is not None else "")
+		if mode == "variable":
+			path = val.get("path")
+			if path:
+				if not (path.startswith("doc.") or path.startswith("vars.")):
+					path = f"vars.{path}"
+				return f"{{{{ {path} }}}}"
+			return ""
+		if mode == "formula":
+			expr = val.get("expression") or ""
+			return f"{{{{ {expr} }}}}"
+		if mode == "resolver":
+			resolver = val.get("resolver") or ""
+			config = val.get("config") or {}
+			args = ", ".join(f"{k}={json.dumps(v)}" for k, v in config.items())
+			return f'{{{{ resolve("{resolver}", {args}) }}}}'
+		if mode == "formatter":
+			formatter = val.get("formatter") or ""
+			options = val.get("options") or {}
+			return f'{{{{ format("{formatter}", {json.dumps(options)}) }}}}'
+		if mode == "normalize":
+			steps = val.get("steps") or []
+			return f"{{{{ normalize(value, {json.dumps(steps)}) }}}}"
+		if mode == "condition":
+			condition = val.get("condition") or {}
+			return f"{{{{ condition({json.dumps(condition)}) }}}}"
+		return ""
+
+	@classmethod
 	def _compile_operand_spec(cls, row: dict, requires_value: bool) -> dict:
 		if not requires_value:
 			return {
 				"value_source": "none",
 				"value_literal": None,
 				"value_template": None,
+				"value_path": None,
+			}
+
+		# Check if the new unified 'value' key holds a structured object
+		val_obj = row.get("value")
+		if isinstance(val_obj, dict) and "mode" in val_obj:
+			mode = val_obj.get("mode")
+			if mode in {"static", "link", "dynamic_link"}:
+				return {
+					"value_source": "literal",
+					"value_literal": val_obj.get("value"),
+					"value_template": None,
+					"value_path": None,
+				}
+			if mode == "variable":
+				return {
+					"value_source": "context_path",
+					"value_literal": None,
+					"value_template": None,
+					"value_path": cls._normalize_context_path(val_obj.get("path")),
+				}
+			# Formula/Resolver/Formatter etc compile to Jinja
+			compiled_jinja = cls._compile_structured_value_to_jinja(val_obj)
+			return {
+				"value_source": "jinja",
+				"value_literal": None,
+				"value_template": compiled_jinja,
 				"value_path": None,
 			}
 
@@ -239,6 +300,10 @@ class AssignmentHandler(ActionHandler):
 
 	@staticmethod
 	def _compile_when_expression(row: dict) -> str:
+		python_expr = row.get("pythonExpression")
+		if python_expr:
+			return python_expr
+
 		when_expression = (row.get("when_expression") or row.get("when") or "").strip()
 		if when_expression:
 			return when_expression

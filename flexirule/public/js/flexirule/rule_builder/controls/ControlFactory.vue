@@ -22,7 +22,7 @@
 			:trigger="df?.fieldtype === 'FieldPicker' ? 'button' : 'input'"
 			:hideLabel="hideLabel"
 			:hideDescription="hideDescription"
-			:read_only="df?.read_only || (df?.fieldtype === 'Dynamic Link' && !doc?.[df?.options])"
+			:read_only="df?.read_only"
 			@update:modelValue="$emit('update:modelValue', $event)"
 		/>
 

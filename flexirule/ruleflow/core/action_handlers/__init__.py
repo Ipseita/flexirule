@@ -121,6 +121,59 @@ class ActionHandler(ABC):
 
 			return str(val)
 
+		def resolve_helper(first, *args, **kwargs):
+			from flexirule.ruleflow.utils.field_resolver import FieldResolver
+
+			if isinstance(first, str):
+				resolver_type = first.lower().strip()
+				if resolver_type in ("query_record", "query_records"):
+					doctype = kwargs.get("doctype")
+					fieldname = kwargs.get("fieldname")
+					filters = kwargs.get("filters")
+					if fieldname:
+						return frappe.db.get_value(doctype, filters, fieldname)
+					else:
+						res = frappe.get_all(doctype, filters=filters, limit=1)
+						return res[0] if res else None
+				elif resolver_type == "resolve_user":
+					return frappe.session.user
+				elif resolver_type == "fetch_global_setting":
+					return frappe.db.get_single_value(kwargs.get("doctype"), kwargs.get("fieldname"))
+				elif resolver_type == "custom":
+					method_path = kwargs.get("method")
+					if method_path:
+						fn = frappe.get_attr(method_path)
+						return fn(*args, **kwargs)
+					return None
+
+				if context and "doc" in context:
+					return FieldResolver.resolve(context.get("doc"), first)
+				return None
+
+			if len(args) > 0 and isinstance(args[0], str):
+				return FieldResolver.resolve(first, args[0])
+			return None
+
+		def normalize_helper(val, steps):
+			from flexirule.ruleflow.process.normalization.normalization import apply_transformations
+
+			return apply_transformations(val, steps)
+
+		def condition_helper(compiled_expr_or_payload):
+			if not compiled_expr_or_payload:
+				return False
+
+			from flexirule.ruleflow.core.compiler import ConditionCompiler
+
+			if isinstance(compiled_expr_or_payload, dict | list):
+				compiled_expr = ConditionCompiler().compile(compiled_expr_or_payload)
+			else:
+				compiled_expr = str(compiled_expr_or_payload)
+
+			if engine and hasattr(engine, "_evaluate_python_condition"):
+				return bool(engine._evaluate_python_condition(compiled_expr, context))
+			return False
+
 		ctx = {
 			"doc": context.get("doc"),
 			"vars": context.get("vars", {}),
@@ -138,6 +191,9 @@ class ActionHandler(ABC):
 			"bool": bool,
 			"float": float,
 			"format": format_jinja,
+			"resolve": resolve_helper,
+			"normalize": normalize_helper,
+			"condition": condition_helper,
 		}
 		if engine:
 			ctx["rule"] = engine.rule
