@@ -110,15 +110,8 @@ jobs:
           # Use our custom parameters
           cp ../docs-config/params.toml config/_default/params.toml
 
-          # Patch existing languages.toml to preserve structure but update our values
-          # We use a more specific regex to avoid matching other languages if they were enabled
-          sed -i 's|footer = .*|footer = "FlexiRule Documentation"|' config/_default/languages.toml
-          # Check if titleHome exists, if not add it under [en.params]
-          if ! grep -q "titleHome =" config/_default/languages.toml; then
-            sed -i '/\[en.params\]/a \    titleHome = "FlexiRule Documentation"' config/_default/languages.toml
-          else
-            sed -i 's|titleHome = .*|titleHome = "FlexiRule Documentation"|' config/_default/languages.toml
-          fi
+          # Use our custom languages configuration
+          cp ../docs-config/languages.en.toml config/_default/languages.toml
 
           # Apply custom font
           mkdir -p assets/scss/common
@@ -129,6 +122,8 @@ jobs:
           rm -rf content/*
           mkdir -p content/en
           cp -r ../docs/* content/en/
+          # Also copy to root content to ensure Hugo finds our _index.md for the home page
+          cp -r ../docs/* content/
 
           # Build
           npm run build

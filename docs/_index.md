@@ -2,6 +2,7 @@
 title: "Overview"
 weight: 10
 layout: "index"
+type: "docs"
 ---
 
 <div align="center">
