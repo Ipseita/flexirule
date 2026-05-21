@@ -2,17 +2,17 @@
 
 
 
-- [Ens](/en/): 
+- [FlexiRule Documentation](/en/): Advanced Visual Rule Engine & Orchestration for Frappe and ERPNext.
 
-## Ens
+## FlexiRule Documentation
 
+> Advanced Visual Rule Engine & Orchestration for Frappe and ERPNext.
 
+- [FlexiRule Documentation](/en/docs/): Advanced Visual Rule Engine & Orchestration for Frappe and ERPNext.
 
-- [Overview](/en/docs/)
+### FlexiRule Documentation
 
-### Overview
-
-
+> Advanced Visual Rule Engine & Orchestration for Frappe and ERPNext.
 
 - [Architecture](/en/docs/architecture/)
 - [System Overview (AR)](/en/docs/system_overview_ar/)
