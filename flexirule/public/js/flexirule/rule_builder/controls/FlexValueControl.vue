@@ -1123,17 +1123,23 @@ watch(
 	(val) => {
 		if (emitting) return;
 		const normalized = coerceStructuredValue(val);
+
 		if (normalized.mode !== "static") {
 			isDynamicMode.value = true;
-			emitting = true;
-			editor.commands.setContent(deserialize(normalized));
-			emitting = false;
+			const newContent = deserialize(normalized);
+
+			// Check if content actually changed to avoid Tiptap focus/cursor jumping
+			if (editor.getHTML() !== newContent) {
+				emitting = true;
+				editor.commands.setContent(newContent);
+				emitting = false;
+			}
 		} else {
 			isDynamicMode.value = false;
 			staticValue.value = normalized.value ?? "";
 		}
 	},
-	{ immediate: true }
+	{ immediate: true, deep: true }
 );
 
 onBeforeUnmount(() => {

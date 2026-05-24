@@ -53,7 +53,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, reactive, watch, computed } from "vue";
+import { onMounted, ref, reactive, watch, computed, toRaw } from "vue";
 import ProcessEngine from "../engines/ProcessEngine.js";
 import SchemaRenderer from "../SchemaRenderer.vue";
 import { useStore } from "../../../stores";
@@ -126,8 +126,14 @@ function update_visual_mappings(mappings) {
 let initCounter = 0;
 
 async function initEngine() {
-	if (!props.node?.data?.process_name || !props.node?.data?.operation) {
-		console.warn("ProcessConfig: Process name or operation missing", props.node?.data);
+	const process_name = props.node?.data?.process_name;
+	const operation = props.node?.data?.operation;
+
+	if (!process_name || !operation) {
+		// Only log if it's truly an unexpected state (e.g. not just initializing)
+		if (props.node?.data) {
+			console.debug("ProcessConfig: Waiting for process_name and operation", toRaw(props.node.data));
+		}
 		return;
 	}
 

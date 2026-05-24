@@ -237,12 +237,32 @@ function stopResize() {
 watch(
 	() => props.modelValue,
 	(val) => {
-		localRows.value = (val || []).map((r) => ({
-			...r,
-			name: r.name || frappe.utils.get_random(10),
-		}));
+		const incoming = val || [];
+
+		// Efficiently sync localRows while preserving object identities for matching 'name'
+		const currentMap = new Map(localRows.value.map((r) => [r.name, r]));
+
+		localRows.value = incoming.map((r) => {
+			const existing = r.name ? currentMap.get(r.name) : null;
+
+			if (existing) {
+				// Update existing row properties without breaking reference
+				Object.keys(r).forEach((key) => {
+					if (existing[key] !== r[key]) {
+						existing[key] = r[key];
+					}
+				});
+				return existing;
+			}
+
+			// New row or no stable name
+			return {
+				...r,
+				name: r.name || frappe.utils.get_random(10),
+			};
+		});
 	},
-	{ immediate: true }
+	{ immediate: true, deep: false }
 );
 
 function updateCell(idx, field, value) {
