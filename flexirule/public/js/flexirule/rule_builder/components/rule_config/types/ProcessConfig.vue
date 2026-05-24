@@ -132,7 +132,10 @@ async function initEngine() {
 	if (!process_name || !operation) {
 		// Only log if it's truly an unexpected state (e.g. not just initializing)
 		if (props.node?.data) {
-			console.debug("ProcessConfig: Waiting for process_name and operation", toRaw(props.node.data));
+			console.debug(
+				"ProcessConfig: Waiting for process_name and operation",
+				toRaw(props.node.data)
+			);
 		}
 		return;
 	}

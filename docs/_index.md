@@ -43,10 +43,10 @@ In modern enterprise systems like **Frappe / ERPNext**, business logic often evo
 
 ### 💎 Why FlexiRule?
 
--   **Centralized Logic**: Move rules out of scattered `.py` files into a single, auditable dashboard.
--   **No-Code Configuration**: Custom UI controls (pickers, autocomplete) allow complex logic setup without a single line of code.
--   **Explicit Execution**: Connections define deterministic paths. No more guessing which hook runs first.
--   **Schema-Driven UI**: Configuration forms for custom logic are auto-generated from JSON schemas.
+- **Centralized Logic**: Move rules out of scattered `.py` files into a single, auditable dashboard.
+- **No-Code Configuration**: Custom UI controls (pickers, autocomplete) allow complex logic setup without a single line of code.
+- **Explicit Execution**: Connections define deterministic paths. No more guessing which hook runs first.
+- **Schema-Driven UI**: Configuration forms for custom logic are auto-generated from JSON schemas.
 
 ### 🧠 The Mental Model
 
