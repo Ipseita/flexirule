@@ -438,6 +438,10 @@ class RuleCoordinator:
 					RuleCoordinator.clear_cache()
 					return
 
+				# Skip rules reserved for explicit programmatic dispatch only.
+				if getattr(rule_doc, "manual_dispatch_only", 0):
+					continue
+
 				is_eligible, reason = RuleCoordinator.check_eligibility(
 					rule_doc,
 					doc,

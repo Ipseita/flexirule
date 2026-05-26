@@ -30,7 +30,10 @@
 		"actions",
 		"visual_data",
 		"section_break_error",
-		"last_error"
+		"last_error",
+		"section_break_caia",
+		"manual_dispatch_only",
+		"caia_command_trigger"
 	],
 	"fields": [
 		{
@@ -247,6 +250,27 @@
 			"fieldname": "exposed_as_subrule",
 			"fieldtype": "Check",
 			"label": "Exposed As Sub-Rule"
+		},
+		{
+			"collapsible": 1,
+			"fieldname": "section_break_caia",
+			"fieldtype": "Section Break",
+			"label": "CAIA Integration"
+		},
+		{
+			"default": "0",
+			"description": "When set, this rule can only be executed via explicit API dispatch (e.g. operator Ack in Conv). Doc-event hooks are suppressed.",
+			"fieldname": "manual_dispatch_only",
+			"fieldtype": "Check",
+			"label": "Manual Dispatch Only"
+		},
+		{
+			"default": "0",
+			"description": "Marks this rule as a CAIA command-trigger rule (for filtering in desk lists and reporting).",
+			"fieldname": "caia_command_trigger",
+			"fieldtype": "Check",
+			"in_standard_filter": 1,
+			"label": "CAIA Command Trigger"
 		}
 	],
 	"index_web_pages_for_search": 1,
@@ -269,7 +293,7 @@
 			"link_fieldname": "rule"
 		}
 	],
-	"modified": "2026-05-19 15:45:38.654684",
+	"modified": "2026-05-26 12:00:00.000000",
 	"modified_by": "Administrator",
 	"module": "Ruleflow",
 	"name": "Rule",

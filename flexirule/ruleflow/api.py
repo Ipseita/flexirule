@@ -1434,6 +1434,102 @@ def get_node_config_schema(
 
 
 @frappe.whitelist()
+def execute_rule_by_name(
+	rule_name: str,
+	reference_doctype: str,
+	reference_docname: str,
+	context_vars: str | dict | None = None,
+	idempotency_key: str | None = None,
+) -> dict[str, Any]:
+	"""Invoke a Rule programmatically without a document-mutation event.
+
+	Designed for command-trigger execution from CAIAC: the caller supplies a
+	reference document (e.g. ``Conversation``) and optional context variables;
+	the engine runs the rule's action graph with that document as ``doc``.
+
+	Args:
+	    rule_name: ``Rule.rule_name`` — must match exactly (this is the primary key).
+	    reference_doctype: DocType of the reference document (must match ``Rule.document_type``).
+	    reference_docname: Name of the reference document.
+	    context_vars: Optional JSON string or dict merged into engine ``vars``.
+	        Standard CAIA keys (``workflow_key``, ``conversation_id``, etc.) should be
+	        passed here by the dispatcher.
+	    idempotency_key: Optional opaque string.  Returned in the response for log
+	        correlation; not enforced inside FlexiRule (idempotency is the caller's
+	        responsibility).
+
+	Returns:
+	    ``{"success": bool, "rule_execution_log": str|None, "status": str, ...}``
+	"""
+	_require_api_access()
+
+	if not rule_name:
+		frappe.throw(_("rule_name is required"), frappe.MandatoryError)
+	if not reference_doctype:
+		frappe.throw(_("reference_doctype is required"), frappe.MandatoryError)
+	if not reference_docname:
+		frappe.throw(_("reference_docname is required"), frappe.MandatoryError)
+
+	rule = frappe.get_doc("Rule", rule_name)
+
+	if rule.document_type and rule.document_type != reference_doctype:
+		frappe.throw(
+			_(
+				"Rule '{0}' is configured for document type '{1}', but '{2}' was supplied."
+			).format(rule_name, rule.document_type, reference_doctype),
+			frappe.ValidationError,
+		)
+
+	if not rule.is_active:
+		frappe.throw(
+			_("Rule '{0}' is not active (status: {1}).  Activate it before invoking programmatically.").format(
+				rule_name, rule.status
+			),
+			frappe.ValidationError,
+		)
+
+	doc = frappe.get_doc(reference_doctype, reference_docname)
+
+	vars_dict: dict = {}
+	if isinstance(context_vars, str):
+		vars_dict = json.loads(context_vars) if context_vars else {}
+	elif isinstance(context_vars, dict):
+		vars_dict = context_vars
+
+	execution_context: dict[str, Any] = {
+		"doc": doc,
+		"vars": vars_dict,
+		"skip_log_enqueue": False,
+	}
+
+	from flexirule.ruleflow.core.coordinator import RuleCoordinator
+
+	try:
+		RuleCoordinator.execute_rule(rule, context=execution_context, dry_run=False)
+		execution = getattr(frappe.local, "execution_payload", None) or {}
+		execution_log_name: str | None = execution.get("execution_id") or execution.get("log_name")
+		return {
+			"success": True,
+			"rule_execution_log": execution_log_name,
+			"status": execution.get("status", "Success"),
+			"idempotency_key": idempotency_key,
+			"execution": execution,
+		}
+	except Exception as e:
+		execution = getattr(frappe.local, "execution_payload", None) or {}
+		return _build_error_response(
+			e,
+			context="execute_rule_by_name",
+			extra={
+				"rule_execution_log": None,
+				"status": "Failed",
+				"idempotency_key": idempotency_key,
+				"execution": execution,
+			},
+		)
+
+
+@frappe.whitelist()
 def search_actions(query: str = "", filters: str | dict | None = None, limit: int | str = 20):
 	"""Fuzzy search across all available action types and operations.
 
