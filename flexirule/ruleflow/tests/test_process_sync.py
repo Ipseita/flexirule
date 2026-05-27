@@ -10,10 +10,13 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from flexirule.patches import sync_processes_before_fixtures
+from flexirule.ruleflow.core import process_sync
 from flexirule.ruleflow.core.process_sync import (
 	get_process_json_path,
 	import_process_from_file,
@@ -24,6 +27,31 @@ from flexirule.ruleflow.core.process_sync import (
 
 class TestProcessSync(FrappeTestCase):
 	"""Test cases for Process Sync functionality"""
+
+	def test_post_model_sync_patch_calls_process_sync(self):
+		"""The migration patch must prepare Process docs before fixture import."""
+		with patch.object(sync_processes_before_fixtures, "sync_all_processes") as mock_sync:
+			sync_processes_before_fixtures.execute()
+
+		mock_sync.assert_called_once_with()
+
+	def test_before_migrate_sync_skips_until_process_schema_exists(self):
+		with (
+			patch.object(process_sync.frappe.db, "table_exists", return_value=False),
+			patch.object(process_sync, "sync_all_processes") as mock_sync,
+		):
+			process_sync.sync_all_processes_if_ready()
+
+		mock_sync.assert_not_called()
+
+	def test_before_migrate_sync_runs_when_schema_is_ready(self):
+		with (
+			patch.object(process_sync.frappe.db, "table_exists", return_value=True),
+			patch.object(process_sync, "sync_all_processes") as mock_sync,
+		):
+			process_sync.sync_all_processes_if_ready()
+
+		mock_sync.assert_called_once_with()
 
 	def setUp(self):
 		super().setUp()

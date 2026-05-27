@@ -13,6 +13,9 @@ class TestRule(FrappeTestCase):
 		if frappe.db.exists("Rule", self.rule_name):
 			frappe.delete_doc("Rule", self.rule_name)
 
+	def test_rule_has_fixture_marker_field(self):
+		self.assertTrue(frappe.get_meta("Rule").has_field("is_fixture"))
+
 	def test_set_value_validation_gap(self):
 		"""Verify that non-existent fields in Set Value action are blocked"""
 		rule = frappe.get_doc(

@@ -10,6 +10,7 @@ vendored into the CAIAC bench at `caiac/frappe-bench/apps/flexirule`.
 | `execute_rule_by_name` whitelisted API | `flexirule/ruleflow/api.py` | **Yes — priority 1** |
 | `manual_dispatch_only` Rule field | `flexirule/ruleflow/doctype/rule/rule.json`, `core/coordinator.py` | **Yes — priority 2** |
 | `caia_command_trigger` Rule field (marker) | `flexirule/ruleflow/doctype/rule/rule.json` | Optional / lower priority |
+| `is_fixture` Rule field | `flexirule/ruleflow/doctype/rule/rule.json` | Optional / lower priority |
 | Tests for programmatic invocation | `flexirule/ruleflow/tests/test_execute_rule_by_name.py` | Yes (with upstream tests) |
 
 ## Upstream contribution plan

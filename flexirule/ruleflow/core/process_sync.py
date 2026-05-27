@@ -26,10 +26,18 @@ from frappe.utils import get_datetime, update_progress_bar
 def sync_all_processes():
 	"""
 	Sync Process docs from JSON files across all installed apps.
-	Called from after_migrate hook.
+	Called from migration hooks.
 	"""
 	for app in frappe.get_installed_apps():
 		sync_processes_for_app(app)
+
+
+def sync_all_processes_if_ready():
+	"""Sync during before_migrate when Process schema already exists."""
+	if not frappe.db.table_exists("Process") or not frappe.db.table_exists("Module Def"):
+		return
+
+	sync_all_processes()
 
 
 def sync_processes_for_app(app_name):
@@ -125,7 +133,7 @@ def import_process_from_file(json_path, module_name):
 	with open(json_path) as f:
 		data = json.load(f)
 
-	process_name = data.get("process_name")
+	process_name = data.get("process_name") or data.get("name")
 	if not process_name:
 		return
 

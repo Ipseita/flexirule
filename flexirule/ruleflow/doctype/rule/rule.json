@@ -5,6 +5,7 @@
 	"doctype": "DocType",
 	"engine": "InnoDB",
 	"field_order": [
+		"is_fixture",
 		"rule_name",
 		"is_active",
 		"exposed_as_subrule",
@@ -36,6 +37,12 @@
 		"caia_command_trigger"
 	],
 	"fields": [
+		{
+			"default": "0",
+			"fieldname": "is_fixture",
+			"fieldtype": "Check",
+			"label": "Is Fixture"
+		},
 		{
 			"allow_in_quick_entry": 1,
 			"fieldname": "rule_name",

@@ -2,8 +2,6 @@
  * Transform mapping utilities.
  */
 
-import { getDocTypeFields } from "./schema_utils.js";
-
 const transformUtils = {
 	/**
 	 * Fetches a flat schema for a DocType, including child tables with dot notation.

@@ -233,6 +233,17 @@ function create_amendment_and_edit(frm) {
 	});
 }
 
+function get_grid_row_field(grid_row, fieldname) {
+	if (!grid_row) return null;
+	if (grid_row.on_grid_fields_dict?.[fieldname]) {
+		return grid_row.on_grid_fields_dict[fieldname];
+	}
+	if (grid_row.grid_form?.fields_dict?.[fieldname]) {
+		return grid_row.grid_form.fields_dict[fieldname];
+	}
+	return null;
+}
+
 function apply_trigger_type_contract(frm, options = {}) {
 	const contract = flexirule.contracts?.getTriggerTypeContract?.(frm.doc.trigger_type) || {
 		required_fields: [],
@@ -420,7 +431,7 @@ function toggle_action_fields(frm, cdt, cdn) {
 
 	// Initial Hide
 	all_config_fields.forEach((f) => {
-		if (grid_row.get_field(f)) {
+		if (get_grid_row_field(grid_row, f)) {
 			grid_row.toggle_display(f, false);
 		}
 	});
@@ -488,19 +499,19 @@ function toggle_action_fields(frm, cdt, cdn) {
 	// Deduplicate and filter existing fields
 	const unique_fields = [...new Set(fields_to_show)];
 	unique_fields.forEach((f) => {
-		if (grid_row.get_field(f)) {
+		if (get_grid_row_field(grid_row, f)) {
 			grid_row.toggle_display(f, true);
 		}
 	});
 
-	const returnTypeField = grid_row.get_field("return_type");
+	const returnTypeField = get_grid_row_field(grid_row, "return_type");
 	if (returnTypeField) {
 		returnTypeField.df.reqd = requireReturnType ? 1 : 0;
 		returnTypeField.refresh();
 	}
 
 	// Update Operation Label if contract provides it
-	const op_field = grid_row.get_field("operation");
+	const op_field = get_grid_row_field(grid_row, "operation");
 	if (op_field) {
 		const dynamicOperationLabel = flexirule.contracts?.getFieldLabel?.(type, "operation", {
 			operation: row.operation,
@@ -526,7 +537,7 @@ function update_operation_options(frm, cdt, cdn) {
 	if (!grid_row) return;
 
 	const apply_ops = (ops) => {
-		const field = grid_row.get_field("operation");
+		const field = get_grid_row_field(grid_row, "operation");
 		if (!field) return;
 		const normalized = (ops || []).map((op) => {
 			if (typeof op === "string") return op;

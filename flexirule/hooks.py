@@ -42,7 +42,7 @@ doc_events = {
 doctype_js = {"Rule": "ruleflow/doctype/rule/rule.js"}
 
 fixtures: list = [
-	{"dt": "Rule", "filters": {"module": ["is", "set"]}},
+	{"dt": "Rule", "filters": {"is_fixture": 1}},
 	{"dt": "Rule Scheduler", "filters": {"module": ["is", "set"]}},
 ]
 
@@ -142,6 +142,9 @@ app_include_css = [
 
 # before_install = "flexirule.install.before_install"
 after_install = "flexirule.install.after_install"
+before_migrate = [
+	"flexirule.ruleflow.core.process_sync.sync_all_processes_if_ready",
+]
 after_migrate = [
 	"flexirule.ruleflow.core.process_sync.sync_all_processes",
 ]
