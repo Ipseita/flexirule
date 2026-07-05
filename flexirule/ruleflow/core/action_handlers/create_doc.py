@@ -245,7 +245,9 @@ class DocumentActionHandler(ActionHandler):
 
 	def _safe_eval(self, expression, context):
 		"""Evaluate expressions using SafeFrappeAPI from context."""
-		safe_frappe = context.get("frappe") or frappe
+		from flexirule.ruleflow.core.engine import get_safe_frappe_api
+
+		safe_frappe = get_safe_frappe_api(context.get("frappe"))
 		eval_locals = {
 			"doc": context.get("doc"),
 			"old_doc": context.get("old_doc"),
@@ -446,11 +448,13 @@ class DocumentActionHandler(ActionHandler):
 		return getattr(source_obj, fieldname, None)
 
 	def _template_context(self, context):
+		from flexirule.ruleflow.core.engine import get_safe_frappe_api
+
 		return {
 			"doc": context.get("doc"),
 			"vars": context.get("vars", {}),
 			"context": context,
-			"frappe": context.get("frappe") or frappe,
+			"frappe": get_safe_frappe_api(context.get("frappe")),
 			"utils": frappe.utils,
 		}
 

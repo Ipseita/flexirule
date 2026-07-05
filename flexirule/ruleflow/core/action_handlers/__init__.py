@@ -291,7 +291,9 @@ class ActionHandler(ABC):
 		if isinstance(old_doc, dict):
 			old_doc = frappe._dict(old_doc)
 
-		safe_frappe = context.get("frappe") or frappe
+		from flexirule.ruleflow.core.engine import get_safe_frappe_api
+
+		safe_frappe = get_safe_frappe_api(context.get("frappe"))
 		safe_expression = (expression or "").strip()
 		# frappe.safe_eval can block module attribute traversal like frappe.utils.add_days.
 		# Normalize common date helpers to direct safe locals.

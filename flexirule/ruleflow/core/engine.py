@@ -238,6 +238,13 @@ class SafeFrappeAPI:
 _safe_frappe = SafeFrappeAPI()
 
 
+def get_safe_frappe_api(candidate=None):
+	"""Return a restricted Frappe API for expression evaluation."""
+	if isinstance(candidate, SafeFrappeAPI):
+		return candidate
+	return _safe_frappe
+
+
 class RuleEngine:
 	"""
 	Production-ready rule execution engine with:
@@ -781,7 +788,7 @@ class RuleEngine:
 			"vars": context.get("vars", {}),
 			"item": context.get("item"),
 			"loop": context.get("loop"),
-			"frappe": context.get("frappe", _safe_frappe),
+			"frappe": get_safe_frappe_api(context.get("frappe")),
 			"caller": frappe._dict(caller_meta or {}),
 			"rule": frappe._dict(rule_meta or {}),
 			"doctype": doctype_name,

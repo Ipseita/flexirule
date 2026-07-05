@@ -27,11 +27,11 @@ jobs:
 
         services:
             redis-cache:
-                image: redis:alpine
+                image: redis:7.4-alpine
                 ports:
                     - 13000:6379
             redis-queue:
-                image: redis:alpine
+                image: redis:7.4-alpine
                 ports:
                     - 11000:6379
             mariadb:
